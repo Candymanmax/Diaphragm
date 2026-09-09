@@ -1,0 +1,205 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  queue: max
+
+jobs:
+  windows-tests:
+    name: Windows tests
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11.9"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create project runtime
+        shell: pwsh
+        run: python -m venv .runtime
+
+      - name: Install project dependencies
+        shell: pwsh
+        run: >-
+          .\.runtime\Scripts\python.exe -m pip install --disable-pip-version-check
+          --no-input -r requirements.txt
+
+      - name: Run the local test gate
+        shell: pwsh
+        run: .\test.bat
+
+  privacy:
+    name: Privacy audit
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11.9"
+
+      - name: Audit current commit candidates
+        shell: pwsh
+        run: python privacy_check.py --current-only
+
+  windows-build:
+    name: Windows build
+    needs:
+      - windows-tests
+      - privacy
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11.9"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create project runtime
+        shell: pwsh
+        run: python -m venv .runtime
+
+      - name: Install build-only CPU PyTorch runtime
+        shell: pwsh
+        run: >-
+          .\.runtime\Scripts\python.exe -m pip install
+          --disable-pip-version-check --no-input
+          torch==2.6.0 torchaudio==2.6.0
+          --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install project dependencies
+        shell: pwsh
+        run: >-
+          .\.runtime\Scripts\python.exe -m pip install
+          --disable-pip-version-check --no-input -r requirements.txt
+
+      - name: Verify build runtime
+        shell: pwsh
+        run: >-
+          .\.runtime\Scripts\python.exe -c
+          "import torch, torchaudio; assert torch.__version__.startswith('2.6.0+cpu'), torch.__version__; assert torch.version.cuda is None, torch.version.cuda; assert torchaudio.__version__.startswith('2.6.0+cpu'), torchaudio.__version__"
+
+      - name: Build packaged application
+        shell: pwsh
+        run: .\build_app.bat --ci
+
+      - name: Verify packaged application
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath "dist\Diaphragm\Diaphragm.exe")) {
+            throw "PyInstaller did not create dist\Diaphragm\Diaphragm.exe"
+          }
+          foreach ($dll in @(
+            "dist\Diaphragm\_internal\sklearn\.libs\vcomp140.dll",
+            "dist\Diaphragm\_internal\sklearn\.libs\msvcp140.dll"
+          )) {
+            if (-not (Test-Path -LiteralPath $dll)) {
+              throw "Packaged sklearn native DLL is missing: $dll"
+            }
+          }
+
+      - name: Create isolated speech runtime for package checks
+        shell: pwsh
+        run: |
+          python -m venv .smoke-runtime
+          if ($LASTEXITCODE -ne 0) { throw "Could not create isolated smoke runtime" }
+          .\.smoke-runtime\Scripts\python.exe -m pip install --disable-pip-version-check --no-input torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          if ($LASTEXITCODE -ne 0) { throw "Could not install isolated smoke runtime" }
+
+      - name: Smoke test packaged application
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "Diaphragm-package-smoke"
+          New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
+          $env:LOCALAPPDATA = $smokeRoot
+          # Only Torch and its dependencies are available outside the package.
+          # The build environment would hide missing packaged files/metadata.
+          $env:DIAPHRAGM_RUNTIME_PYTHON = (Resolve-Path ".smoke-runtime\Scripts\python.exe").Path
+          $process = Start-Process `
+            -FilePath "dist\Diaphragm\Diaphragm.exe" `
+            -ArgumentList "--smoke-test" `
+            -PassThru `
+            -Wait
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged smoke test failed with exit code $($process.ExitCode)"
+          }
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Diaphragm-windows
+          path: dist/Diaphragm
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Download uploaded Windows package
+        uses: actions/download-artifact@v8
+        with:
+          name: Diaphragm-windows
+          path: ${{ runner.temp }}/Diaphragm-artifact-roundtrip
+
+      - name: Verify uploaded Windows package
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $artifactRoot = Join-Path $env:RUNNER_TEMP "Diaphragm-artifact-roundtrip"
+          $executable = Get-ChildItem `
+            -LiteralPath $artifactRoot `
+            -Filter "Diaphragm.exe" `
+            -File `
+            -Recurse | Select-Object -First 1
+          if ($null -eq $executable) {
+            throw "The uploaded artifact does not contain Diaphragm.exe"
+          }
+
+          $packageRoot = $executable.Directory.FullName
+          foreach ($relativePath in @(
+            "_internal\sklearn\.libs\vcomp140.dll",
+            "_internal\sklearn\.libs\msvcp140.dll"
+          )) {
+            $dll = Join-Path $packageRoot $relativePath
+            if (-not (Test-Path -LiteralPath $dll)) {
+              throw "Uploaded artifact is missing: $relativePath"
+            }
+          }
+
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "Diaphragm-artifact-smoke"
+          New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
+          $env:LOCALAPPDATA = $smokeRoot
+          $env:DIAPHRAGM_RUNTIME_PYTHON = `
+            (Resolve-Path ".smoke-runtime\Scripts\python.exe").Path
+          $process = Start-Process `
+            -FilePath $executable.FullName `
+            -ArgumentList "--smoke-test" `
+            -PassThru `
+            -Wait
+          if ($process.ExitCode -ne 0) {
+            throw "Uploaded artifact smoke test failed with exit code $($process.ExitCode)"
+          }

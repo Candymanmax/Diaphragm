@@ -1,0 +1,87 @@
+# Baseline settings. Keep this file unchanged; edit config.yaml for active settings.
+
+voice: male
+
+# Chatterbox model: original, turbo, v3, or nano.
+model: original
+
+language: en
+
+chunk_size: 50
+
+min_chunk_size: 15
+
+output_format: wav
+
+retry_attempts: 3
+
+normalize_audio: true
+
+merge_audio: true
+
+# Keep chunk text/audio after success for segment review and regeneration.
+# Leave false for the original automatic cleanup behavior.
+retain_job_artifacts: false
+
+sample_rate: 24000
+
+# Resource-aware inference splitting
+splitting_mode: automatic
+
+# Used as the fixed section size in manual mode.
+generation_max_words: 120
+
+# Automatic mode starts within these limits, then adapts to memory headroom.
+automatic_min_words: 20
+
+automatic_max_words: 160
+
+# Free VRAM kept in reserve while automatic mode chooses a section size.
+vram_safety_margin_mb: 1024
+
+# Successful CUDA sections required before cautiously increasing the size.
+adaptive_growth_interval: 3
+
+cpu_fallback: true
+
+# auto follows the model recommendation; alternatives are cuda and cpu.
+device_preference: auto
+
+# Chatterbox generation controls
+
+# Conservative ranges are enforced by the GUI and config validation.
+# They keep generation away from settings that commonly produce unstable
+# or poor dialogue.
+
+# Safe range: 0.0 to 1.0
+exaggeration: 0.6
+
+# Safe range: 0.0 to 1.0
+cfg_weight: 0.4
+
+# Safe range: 0.1 to 1.5
+temperature: 0.8
+
+# Safe range: 1.0 to 2.0
+repetition_penalty: 1.2
+
+# Safe range: 0.0 to 0.2
+min_p: 0.05
+
+# Safe range: 0.1 to 1.0
+top_p: 1.0
+
+# Safe range: 1 to 1000. Turbo and Nano only; disabled for Original and V3.
+top_k: 1000
+
+# Silence inserted between merged chunks
+pause_min_ms: 100
+
+pause_max_ms: 250
+
+pause_mean_ms: 220.0
+
+pause_std_ms: 50.0
+
+# Integrated loudness target
+loudness_target_lufs: -14.0

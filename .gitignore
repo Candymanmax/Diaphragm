@@ -1,0 +1,65 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local Python environments
+venv/
+.venv/
+.runtime/
+.runtime-python/
+.test-python/
+.smoke-runtime/
+benchmarks/results/
+env/
+ENV/
+
+# Temporary and local runtime files
+*.tmp
+*.temp
+*.log
+*.spec
+build/
+dist/
+.env
+.env.*
+!.env.example
+
+# Diaphragm private data (defensive rules for accidental project-root storage)
+# The normal application data root is %LOCALAPPDATA%\Diaphragm\.
+/config.yaml
+/runtime_profiles.json
+/*.txt
+!/requirements.txt
+/audio/
+/chunks/
+/final/
+/input/
+/jobs/
+/logs/
+/models/
+/voices/
+*.aac
+*.bin
+*.ckpt
+*.flac
+*.m4a
+*.mp3
+*.ogg
+*.opus
+*.pt
+*.pth
+*.safetensors
+*.wav
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE/editor settings
+.vscode/
+.idea/
