@@ -1,7 +1,7 @@
 # Security Policy
 
-Diaphragm is currently in private beta.
-The source repository is private during this phase.
+Diaphragm is in a public beta. Security reports help make the application safer 
+for everyone testing it.
 
 ## Supported versions
 
@@ -9,27 +9,28 @@ The source repository is private during this phase.
 |---|---|
 | 0.1.x private beta | Yes |
 
+Security fixes are applied to the latest public beta. Updating to a newer beta
+may be required to receive a fix.
+
 ## Reporting a vulnerability
 
 Please do not open a public issue for a security vulnerability.
 
-For the private beta, report suspected vulnerabilities directly to the
-repository owner through the private contact channel provided to beta testers.
-If you do not have that channel, ask the repository owner for one without
-including vulnerability details.
+Use GitHub's private **Report a vulnerability** form:
 
-Do not include vulnerability details in GitHub issues, pull requests, commits,
-or other shared repository locations. GitHub's **Report a vulnerability**
-workflow is not the reporting route for this private-beta repository.
+<https://github.com/Candymanmax/Diaphragm/security/advisories/new>
 
-Do not include Hugging Face tokens, private scripts, voice files, model weights,
-job data, generated audio, or unredacted logs in a report.
+Please include as much of the following:
 
-## In scope
+- The affected Diaphragm version or commit.
+- Your Windows version and whether you used a release build or built from source.
+- A description of the issue and its likely impact.
+- Minimal, repeatable steps
 
-Reports involving credential exposure, private-data exposure, unsafe file
-deletion, arbitrary code execution, insecure downloads, or release tampering
-are in scope.
+Remove personal content before submitting a report. Do not include
+Hugging Face tokens, credentials, private scripts, voice recordings, model
+weights, generated audio, job data, or unredacted logs.
 
-Please include the affected version, Windows/Python version, reproduction
-steps, and the expected and observed behavior.
+Ordinary crashes, installation problems, performance issues, model quality,
+and feature requests should be reported through
+[GitHub Issues](https://github.com/Candymanmax/Diaphragm/issues)
