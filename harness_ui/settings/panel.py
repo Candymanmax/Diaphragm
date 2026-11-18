@@ -142,6 +142,8 @@ class SettingsPanel(QWidget):
             if not self._job_editable:
                 widget.setEnabled(False)
 
+        self.update_subtitle_control()
+
         # Model installation is independent from editing a job snapshot and
         # remains available for the selected model.
         self.reset_button.setEnabled(self._job_editable)
@@ -166,6 +168,7 @@ class SettingsPanel(QWidget):
             self.sample_rate,
             self.output_format,
             self.merge_audio,
+            self.export_subtitles,
             self.normalize_audio,
             self.retain_job_artifacts,
             self.pause_min_ms,
@@ -179,6 +182,9 @@ class SettingsPanel(QWidget):
 
     def notify_change(self):
         self._notify_change()
+
+    def update_subtitle_control(self):
+        self.export_subtitles.setEnabled(self.job_editable and self.merge_audio.isChecked())
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -497,6 +503,10 @@ class SettingsPanel(QWidget):
         self.merge_audio.setToolTip(
             "Merge generated chunks into one output file."
         )
+        self.export_subtitles = QCheckBox("Export subtitles")
+        self.export_subtitles.setToolTip(
+            "Requires merged audio. The first export downloads the speech recognition model."
+        )
         self.normalize_audio = QCheckBox("Normalize loudness")
         self.normalize_audio.setToolTip(
             "Normalize the loudness of the final output."
@@ -516,6 +526,7 @@ class SettingsPanel(QWidget):
         form.addRow("Sample rate", self.sample_rate)
         form.addRow("Output format", self.output_format)
         form.addRow("Merge", self.merge_audio)
+        form.addRow("Subtitles", self.export_subtitles)
         form.addRow("Normalize", self.normalize_audio)
         form.addRow("Segment review", self.retain_job_artifacts)
         self._add_helper_text(
@@ -542,6 +553,7 @@ class SettingsPanel(QWidget):
         self.import_voice.clicked.connect(self._import_voice)
         self.save_button.clicked.connect(self.save)
         self.reset_button.clicked.connect(self.reset_defaults)
+        self.merge_audio.toggled.connect(self.update_subtitle_control)
 
         widgets = (
             self.voice,
@@ -576,6 +588,7 @@ class SettingsPanel(QWidget):
         for widget in (
             self.cpu_fallback,
             self.merge_audio,
+            self.export_subtitles,
             self.normalize_audio,
             self.retain_job_artifacts,
         ):

@@ -12,6 +12,7 @@ PROGRESS_EVENTS = {
     "script.started",
     "script.completed",
     "script.failed",
+    "script.transcribing",
     "chunk.started",
     "chunk.failed",
     "job.completed",
@@ -111,6 +112,8 @@ def _show_job(service, job):
     if job["status"] == "complete":
         for output in service.output_paths(job):
             print(output)
+            for subtitle in service.subtitle_paths(output):
+                print(subtitle)
 
 
 def _ensure_packaged_runtime(data_root):
@@ -148,11 +151,14 @@ def _run_command(args, command):
         service = TTSHarnessService(paths)
         if args.command == "generate":
             _ensure_packaged_runtime(paths.data_root)
+            config_override = (
+                replace(service.load_config(), export_subtitles=True) if args.subtitles else None
+            )
             manifest = service.create_job(JobRequest(
                 scripts=tuple(str(script) for script in args.scripts),
                 voice_override=str(args.voice),
                 origin="cli",
-            ))
+            ), config_override=config_override)
             job_id = manifest["job_id"]
             print(f"Created job {job_id}", file=sys.stderr, flush=True)
             return _run_job(service, job_id, mode="prepared", command=command)
@@ -185,6 +191,7 @@ def main(argv=None):
     generate = commands.add_parser("generate", help="Generate audio from text files")
     generate.add_argument("scripts", nargs="+", type=Path, metavar="SCRIPT.txt")
     generate.add_argument("--voice", required=True, type=Path, metavar="VOICE.wav")
+    generate.add_argument("--subtitles", action="store_true", help="Export SRT and word highlighting")
     jobs = commands.add_parser("jobs", help="Inspect and resume saved jobs")
     job_commands = jobs.add_subparsers(dest="job_command", required=True)
     job_commands.add_parser("list", help="List saved jobs")

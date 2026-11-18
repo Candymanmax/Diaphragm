@@ -209,6 +209,7 @@ class ApplicationSignalWiring:
         output_view.open_output_button.clicked.connect(
             output.open_selected_output
         )
+        output_view.open_subtitles_button.clicked.connect(output.open_selected_subtitles)
         output_view.open_output_folder_button.clicked.connect(
             output.open_output_folder
         )

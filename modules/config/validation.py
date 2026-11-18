@@ -162,7 +162,11 @@ def validate_pipeline_config(config):
         "normalize_audio": config.normalize_audio,
         "merge_audio": config.merge_audio,
         "retain_job_artifacts": config.retain_job_artifacts,
+        "export_subtitles": config.export_subtitles,
         "cpu_fallback": config.cpu_fallback,
     }.items():
         if not isinstance(value, bool):
             raise ValueError(f"Config '{name}' must be true or false")
+
+    if config.export_subtitles and not config.merge_audio:
+        raise ValueError("Subtitle export requires merged audio")

@@ -40,6 +40,7 @@ class PipelineConfig:
     pause_mean_ms: float = 220.0
     pause_std_ms: float = 50.0
     loudness_target_lufs: float = -14.0
+    export_subtitles: bool = False
 
     def __post_init__(self):
         for name in ("voice",):

@@ -21,9 +21,11 @@ class OutputPlaybackCommands:
     def select_output(self, current, previous):
         del previous
         if current is None:
+            self.view.open_subtitles_button.hide()
             return
         self.view.output_stack.setCurrentWidget(self.view.output_content)
         path = Path(current.data(Qt.ItemDataRole.UserRole))
+        self.view.open_subtitles_button.setVisible(self._subtitle_player(path) is not None)
         try:
             info = sf.info(path)
             duration = info.frames / info.samplerate if info.samplerate else 0
@@ -106,6 +108,16 @@ class OutputPlaybackCommands:
         ).parent
         folder.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def _subtitle_player(self, output):
+        return next((path for path in self.service.subtitle_paths(output) if path.suffix == ".html"), None)
+
+    def open_selected_subtitles(self):
+        item = self.view.output_list.currentItem()
+        if item is not None and not self._worker_running():
+            player = self._subtitle_player(item.data(Qt.ItemDataRole.UserRole))
+            if player is not None:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(player)))
 
     def release_media_source(self):
         """Release Windows handles before replacing retained/output WAVs."""

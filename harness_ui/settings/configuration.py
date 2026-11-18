@@ -62,6 +62,8 @@ class SettingsConfigMapper:
             panel.retry_attempts.setValue(config.retry_attempts)
             panel.normalize_audio.setChecked(config.normalize_audio)
             panel.merge_audio.setChecked(config.merge_audio)
+            panel.export_subtitles.setChecked(config.export_subtitles)
+            panel.update_subtitle_control()
             panel.retain_job_artifacts.setChecked(
                 config.retain_job_artifacts
             )
@@ -116,6 +118,7 @@ class SettingsConfigMapper:
             retry_attempts=panel.retry_attempts.value(),
             normalize_audio=panel.normalize_audio.isChecked(),
             merge_audio=panel.merge_audio.isChecked(),
+            export_subtitles=(panel.merge_audio.isChecked() and panel.export_subtitles.isChecked()),
             retain_job_artifacts=panel.retain_job_artifacts.isChecked(),
             sample_rate=panel.sample_rate.value(),
             generation_max_words=panel.generation_max_words.value(),

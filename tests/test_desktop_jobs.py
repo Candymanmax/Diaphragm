@@ -793,6 +793,8 @@ class DesktopJobsTests(DesktopHarnessBase):
             audio.setsampwidth(2)
             audio.setframerate(24000)
             audio.writeframes(b"\0\0" * 240)
+        player = output.with_suffix(".subtitles.html")
+        player.write_text("<p>Subtitle player</p>", encoding="utf-8")
 
         self.window.ui_state.set("current_job_id", manifest["job_id"])
         self.window.ui_state.set("current_manifest", manifest)
@@ -845,6 +847,12 @@ class DesktopJobsTests(DesktopHarnessBase):
         ) as open_url:
             self.window.workspace_view.output.open_output_folder_button.click()
             open_url.assert_called_once_with(QUrl.fromLocalFile(str(output.parent)))
+
+        subtitle_button = self.window.workspace_view.output.open_subtitles_button
+        self.assertTrue(subtitle_button.isVisible())
+        with patch("harness_ui.controllers.output_review.QDesktopServices.openUrl") as open_url:
+            subtitle_button.click()
+            open_url.assert_called_once_with(QUrl.fromLocalFile(str(player)))
 
 
     def test_relative_job_times_are_compact(self):

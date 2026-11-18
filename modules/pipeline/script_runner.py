@@ -4,6 +4,7 @@ from modules.events import emit_event
 from modules.jobs import utc_now
 from modules.merger import AudioMerger
 from modules.normalizer import AudioNormalizer
+from modules.subtitles import render_player, render_srt, subtitle_files
 
 from .chunks import ensure_script_chunks, generate_pending_chunks
 from .control import check_control
@@ -18,6 +19,8 @@ def process_job_script(
     voice,
     generator_provider,
     event_callback=None,
+    *,
+    subtitle_exporter=None,
 ):
     del voice
     job_id = manifest["job_id"]
@@ -105,12 +108,10 @@ def process_job_script(
         return published
 
     output_file = store.resolve_artifact(job_id, script["output_path"])
+    work_folder = store.resolve_artifact(job_id, script.get("work_directory"))
+    reuse_output = output_file.is_file() and output_file.stat().st_size > 0
 
-    if not (output_file.is_file() and output_file.stat().st_size > 0):
-        work_folder = store.resolve_artifact(
-            job_id,
-            script["work_directory"],
-        )
+    if not reuse_output:
         work_folder.mkdir(parents=True, exist_ok=True)
         merged_file = work_folder / f"merged.{config.output_format}"
 
@@ -150,7 +151,24 @@ def process_job_script(
         print("\n[4/4] Normalisation already complete")
 
     check_control(store, manifest, script, event_callback)
+    subtitle_copies = ()
+    if subtitle_exporter is not None:
+        private_subtitles = subtitle_files(work_folder / output_file.name)
+        if not reuse_output or not all(path.is_file() for path in private_subtitles):
+            emit_event(
+                event_callback, "script.transcribing", f"Transcribing {script['name']} for subtitles",
+                job_id=job_id, script_id=script["id"],
+            )
+            words = subtitle_exporter.transcribe(output_file, config.language)
+            srt, player = private_subtitles
+            store._atomic_write_text(srt, render_srt(words))
+            store._atomic_write_text(player, render_player(published, words))
+        subtitle_copies = zip(private_subtitles, subtitle_files(published))
+        check_control(store, manifest, script, event_callback)
+
     atomic_copy(output_file, published)
+    for private, target in subtitle_copies:
+        atomic_copy(private, target)
     script["status"] = "complete"
     script["completed_at"] = utc_now()
     script["error"] = None

@@ -41,6 +41,7 @@ class CliTests(unittest.TestCase):
             def finish_job(service, job_id, *, mode):
                 self.assertEqual(mode, "prepared")
                 manifest = service.load_job(job_id)
+                self.assertTrue(manifest["settings"]["export_subtitles"])
                 output = service.paths.library_root / manifest["scripts"][0]["published_output"]
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_bytes(b"test output")
@@ -58,7 +59,7 @@ class CliTests(unittest.TestCase):
                 redirect_stderr(stderr),
             ):
                 exit_code = diaphragm.main(
-                    ["generate", str(script), "--voice", str(voice)]
+                    ["generate", str(script), "--voice", str(voice), "--subtitles"]
                 )
 
             self.assertEqual(exit_code, 0)

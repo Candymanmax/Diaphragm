@@ -19,6 +19,9 @@ normalize_audio: true
 
 merge_audio: true
 
+# Export an SRT and a player with word highlighting beside each merged WAV.
+export_subtitles: false
+
 # Keep chunk text/audio after success for segment review and regeneration.
 # Leave false for the original automatic cleanup behavior.
 retain_job_artifacts: false

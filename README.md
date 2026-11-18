@@ -67,6 +67,14 @@ cd Diaphragm
 ./launch.command
 ```
 
+### Command line and subtitles
+
+After desktop setup, run `.\diaphragm-cli.exe --help` from the extracted
+Windows package. From source, run `python -m diaphragm --help` with the project runtime.
+
+Enable **Export subtitles** under **Audio Output** or pass `--subtitles` to
+`generate` to export an `.srt`.
+
 ## Supported models
 
 | Model | Language support | Native event tags | Intended use |

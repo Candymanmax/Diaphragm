@@ -54,6 +54,9 @@ class OutputTabSection(StatefulSection):
             role="neutral",
             parent=player_panel,
         )
+        self.open_subtitles_button = standard_button(
+            "Open subtitles", role="neutral", parent=player_panel,
+        )
         self.open_output_folder_button = standard_button(
             "Open output folder",
             role="neutral",
@@ -62,10 +65,12 @@ class OutputTabSection(StatefulSection):
         output_actions = QHBoxLayout()
         output_actions.setSpacing(CONTROL_SPACING)
         output_actions.addWidget(self.open_output_button)
+        output_actions.addWidget(self.open_subtitles_button)
         output_actions.addWidget(self.open_output_folder_button)
         self.output_actions_layout = output_actions
         self.output_action_buttons = (
             self.open_output_button,
+            self.open_subtitles_button,
             self.open_output_folder_button,
         )
         for button in self.output_action_buttons:

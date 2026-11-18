@@ -162,5 +162,8 @@ class TTSHarnessService:
     def output_paths(self, manifest):
         return self.output_catalog.paths_for(manifest)
 
+    def subtitle_paths(self, output):
+        return self.output_catalog.subtitles_for(output)
+
 
 __all__ = ("JobRequest", "TTSHarnessService")

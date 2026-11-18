@@ -7,6 +7,7 @@ from modules.app_settings import AppPaths
 from modules.config import PipelineConfig
 from modules.events import emit_event
 from modules.jobs import JobControlRequested, JobStoreError, utc_now
+from modules.subtitles import SubtitleExporter
 
 from .control import CANCELLED_EXIT_CODE, PAUSED_EXIT_CODE, check_control
 from .generator_session import SharedGeneratorSession
@@ -84,6 +85,11 @@ def run_job(store, manifest, event_callback=None, *, app_paths):
         app_paths=app_paths,
         event_callback=event_callback,
     )
+    script_options = {}
+    if event_callback is not None:
+        script_options["event_callback"] = event_callback
+    if config.export_subtitles:
+        script_options["subtitle_exporter"] = SubtitleExporter(app_paths.hub_cache_root)
 
     try:
         for index, script in enumerate(manifest["scripts"], start=1):
@@ -95,25 +101,10 @@ def run_job(store, manifest, event_callback=None, *, app_paths):
             print(f"\n\nSCRIPT {index}/{len(manifest['scripts'])}")
 
             try:
-                if event_callback is None:
-                    process_job_script(
-                        store,
-                        manifest,
-                        script,
-                        config,
-                        voice,
-                        generator_session,
-                    )
-                else:
-                    process_job_script(
-                        store,
-                        manifest,
-                        script,
-                        config,
-                        voice,
-                        generator_session,
-                        event_callback=event_callback,
-                    )
+                process_job_script(
+                    store, manifest, script, config, voice, generator_session,
+                    **script_options,
+                )
             except JobControlRequested:
                 raise
             except Exception as error:
