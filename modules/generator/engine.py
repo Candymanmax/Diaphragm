@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from pathlib import Path
-import gc
 import time
 
 import torch
@@ -15,7 +14,9 @@ from modules.resources import (
     AdaptiveSectionPlanner,
     ResourceMonitor,
     RuntimeProfileStore,
-    is_cuda_out_of_memory,
+    is_accelerator_out_of_memory,
+    is_mps_unsupported_error,
+    release_device_memory,
 )
 
 from .output import ChunkOutputWriter
@@ -118,16 +119,19 @@ class VoiceGenerator:
             self._load_adapter(self.device)
         except Exception as error:
             if (
-                self.device == "cuda"
+                self.device in {"cuda", "mps"}
                 and self.cpu_fallback
-                and is_cuda_out_of_memory(error)
+                and (
+                    is_accelerator_out_of_memory(error, self.device)
+                    or (self.device == "mps" and is_mps_unsupported_error(error))
+                )
             ):
                 print(
-                    "CUDA ran out of memory while loading the model; "
+                    f"{self.device.upper()} could not load the model or voice: {error}; "
                     "falling back to CPU."
                 )
                 self._release_adapter()
-                self._release_cuda_memory()
+                self._release_accelerator_memory()
                 self.device = "cpu"
                 self.monitor.set_active_device("cpu")
                 self._load_fallback_used = True
@@ -162,29 +166,37 @@ class VoiceGenerator:
 
     def _select_device(self):
         capabilities = get_model_capabilities(self.model_name)
-        cuda_available = bool(torch.cuda.is_available())
 
         if self.device_preference == "cpu":
             return "cpu"
 
-        if self.device_preference == "cuda":
-            if cuda_available:
-                return "cuda"
+        if self.device_preference in {"cuda", "mps"}:
+            device = self.device_preference
+            available = (
+                torch.cuda.is_available() if device == "cuda"
+                else torch.backends.mps.is_available()
+            )
+            if available and device in capabilities.devices:
+                return device
 
             if self.cpu_fallback:
-                print("CUDA was requested but is unavailable; using CPU.")
+                print(f"{device.upper()} was requested but is unavailable; using CPU.")
                 self._load_fallback_used = True
                 return "cpu"
 
             raise RuntimeError(
-                "CUDA was requested but is unavailable and CPU fallback "
+                f"{device.upper()} was requested but is unavailable and CPU fallback "
                 "is disabled"
             )
 
         if capabilities.recommended_device == "cpu":
             return "cpu"
 
-        return "cuda" if cuda_available else "cpu"
+        if torch.cuda.is_available() and "cuda" in capabilities.devices:
+            return "cuda"
+        if torch.backends.mps.is_available() and "mps" in capabilities.devices:
+            return "mps"
+        return "cpu"
 
     def _load_adapter(self, device):
         self.adapter = create_tts_model_adapter(
@@ -212,15 +224,8 @@ class VoiceGenerator:
         finally:
             self.adapter = None
 
-    @staticmethod
-    def _release_cuda_memory():
-        gc.collect()
-
-        if torch.cuda.is_available():
-            try:
-                torch.cuda.empty_cache()
-            except (AssertionError, RuntimeError):
-                pass
+    def _release_accelerator_memory(self):
+        release_device_memory(self.device)
 
     def _print_detected_resources(self):
         print_detected_resources(self)
@@ -275,7 +280,10 @@ class VoiceGenerator:
 
                 return wav
             except Exception as error:
-                if is_cuda_out_of_memory(error):
+                if (
+                    is_accelerator_out_of_memory(error, self.device)
+                    or (self.device == "mps" and is_mps_unsupported_error(error))
+                ):
                     raise
 
                 if attempt >= self.retry_attempts:
@@ -288,20 +296,20 @@ class VoiceGenerator:
                 print(
                     f"Retrying ({attempt + 1}/{self.retry_attempts})"
                 )
-                self._release_cuda_memory()
+                self._release_accelerator_memory()
 
         raise SynthesisError("Speech generation failed")
 
-    def _fallback_to_cpu(self):
-        if self.device != "cuda" or not self.cpu_fallback:
+    def _fallback_to_cpu(self, reason="GPU memory exhausted at the minimum section size"):
+        if self.device not in {"cuda", "mps"} or not self.cpu_fallback:
             return False
 
         print(
-            "CUDA OOM persisted at the minimum safe section size; "
+            f"{self.device.upper()}: {reason}; "
             "moving the loaded session to CPU."
         )
         self._release_adapter()
-        self._release_cuda_memory()
+        self._release_accelerator_memory()
         self.device = "cpu"
         self.monitor.set_active_device("cpu")
         self._load_adapter("cpu")
@@ -327,7 +335,7 @@ class VoiceGenerator:
                 print(f"Warning: could not save runtime profile: {error}")
 
         self._release_adapter()
-        self._release_cuda_memory()
+        self._release_accelerator_memory()
 
     def generate_chunk(self, text):
         units = deque(self._sentence_units(text))
@@ -356,27 +364,34 @@ class VoiceGenerator:
                 wav = self.generate_part(part)
                 self.monitor.synchronize()
             except Exception as error:
-                if self.device != "cuda" or not is_cuda_out_of_memory(error):
+                if self.device == "mps" and is_mps_unsupported_error(error):
+                    if not self._fallback_to_cpu(reason=f"unsupported operation ({error})"):
+                        raise
+                    for sentence in reversed(self._sentence_units(part)):
+                        units.appendleft(sentence)
+                    continue
+
+                if not is_accelerator_out_of_memory(error, self.device):
                     raise
 
                 previous_limit = self.planner.current_words
                 reduced_limit = self.planner.record_oom(words)
-                self._release_cuda_memory()
+                self._release_accelerator_memory()
 
                 for sentence in reversed(self._sentence_units(part)):
                     units.appendleft(sentence)
 
                 print(
-                    f"CUDA OOM at {words} words; section limit reduced "
+                    f"{self.device.upper()} OOM at {words} words; section limit reduced "
                     f"from {previous_limit} to {reduced_limit}."
                 )
                 print(
-                    "RUNTIME_STATUS: CUDA OOM recovery | "
+                    f"RUNTIME_STATUS: {self.device.upper()} OOM recovery | "
                     f"section limit {reduced_limit} words"
                 )
                 self._emit_runtime(
                     "runtime.oom_recovery",
-                    f"CUDA OOM recovery | section limit "
+                    f"{self.device.upper()} OOM recovery | section limit "
                     f"{reduced_limit} words",
                 )
 
@@ -385,7 +400,7 @@ class VoiceGenerator:
                         continue
 
                     raise SynthesisError(
-                        "CUDA ran out of memory at the configured minimum "
+                        f"{self.device.upper()} ran out of memory at the configured minimum "
                         "section size and CPU fallback is disabled"
                     ) from error
 
@@ -393,7 +408,7 @@ class VoiceGenerator:
 
             elapsed = time.perf_counter() - started
             audio_seconds = wav.shape[-1] / self.sample_rate
-            self._release_cuda_memory()
+            self._release_accelerator_memory()
             previous_limit = self.planner.current_words
             chosen_limit = self.planner.record_success(
                 words,
@@ -403,16 +418,16 @@ class VoiceGenerator:
 
             if chosen_limit > previous_limit:
                 print(
-                    f"VRAM headroom is stable; section limit increased "
+                    f"GPU memory headroom is stable; section limit increased "
                     f"from {previous_limit} to {chosen_limit}."
                 )
                 print(
-                    "RUNTIME_STATUS: CUDA stable | "
+                    f"RUNTIME_STATUS: {self.device.upper()} stable | "
                     f"section limit {chosen_limit} words"
                 )
                 self._emit_runtime(
                     "runtime.grew",
-                    f"CUDA stable | section limit {chosen_limit} words",
+                    f"{self.device.upper()} stable | section limit {chosen_limit} words",
                 )
 
             audio.append(wav)

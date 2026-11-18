@@ -46,6 +46,7 @@ class JobHeaderSection(StatefulSection):
         self.layout = layout
 
         header = QHBoxLayout()
+        self.header_row = header
         header.setSpacing(CONTROL_SPACING)
         self.job_title = QLabel("New TTS job")
         self.job_title.setObjectName("jobHeaderTitle")

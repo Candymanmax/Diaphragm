@@ -1,6 +1,11 @@
 from pathlib import Path
+import ctypes
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
+
+from modules.resources import monitor as resource_monitor
 
 from modules.resources import (
     AdaptiveSectionPlanner,
@@ -173,6 +178,14 @@ class ResourcePlannerTests(unittest.TestCase):
             self.assertEqual(saved["device_name"], "CPU")
             self.assertEqual(saved["total_memory_mb"], 32000.0)
 
+    def test_cpu_zero_available_ram_uses_the_minimum_section_size(self):
+        for available, expected in ((0, 20), (None, 120)):
+            with self.subTest(available=available), TemporaryDirectory() as folder:
+                planner, _, _ = self._planner(
+                    folder, current_snapshot=snapshot(device="cpu", available_ram_mb=available),
+                )
+                self.assertEqual(planner.current_words, expected)
+
     def test_wrapped_cuda_oom_is_recognized(self):
         try:
             raise RuntimeError("CUDA out of memory while allocating tensor")
@@ -182,6 +195,110 @@ class ResourcePlannerTests(unittest.TestCase):
 
         self.assertTrue(is_cuda_out_of_memory(wrapped))
         self.assertFalse(is_cuda_out_of_memory(RuntimeError("ordinary error")))
+
+
+class MacOSMemoryTests(unittest.TestCase):
+    def library(self, free_pages=100, inactive_pages=200):
+        def sysctl(name, output, size, new_value, new_size):
+            self.assertEqual(name, b"hw.memsize")
+            ctypes.cast(output, ctypes.POINTER(ctypes.c_uint64)).contents.value = 16*1024**3
+            return 0
+
+        def statistics(host, flavor, output, count):
+            self.assertEqual(flavor, 2)
+            values = ctypes.cast(output, ctypes.POINTER(ctypes.c_uint32))
+            values[0] = free_pages
+            values[1] = 1000  # Active pages must not contribute to available RAM.
+            values[2] = inactive_pages
+            values[14] = 50  # Speculative pages are already in the free count.
+            return 0
+
+        return SimpleNamespace(
+            sysctlbyname=Mock(side_effect=sysctl),
+            mach_host_self=Mock(return_value=123),
+            mach_task_self=Mock(return_value=456),
+            host_statistics=Mock(side_effect=statistics),
+            mach_port_deallocate=Mock(return_value=0),
+        )
+
+    def test_native_memory_uses_the_system_page_size_and_counts_pages_once(self):
+        for page_size in (4096, 16384):
+            library = self.library()
+            with self.subTest(page_size=page_size), patch.object(
+                resource_monitor, "_macos_system_library", return_value=library
+            ), patch.object(resource_monitor.os, "sysconf", return_value=page_size, create=True):
+                self.assertEqual(resource_monitor._macos_memory_bytes(), (
+                    16*1024**3, 300*page_size,
+                ))
+            library.mach_port_deallocate.assert_called_once_with(456, 123)
+
+    def test_failed_vm_statistics_preserve_total_and_release_host_port(self):
+        for failure in (5, OSError("permission denied")):
+            library = self.library()
+            library.host_statistics.side_effect = None
+            if isinstance(failure, Exception):
+                library.host_statistics.side_effect = failure
+            else:
+                library.host_statistics.return_value = failure
+            with self.subTest(failure=failure), patch.object(
+                resource_monitor, "_macos_system_library", return_value=library
+            ), patch.object(resource_monitor.os, "sysconf", return_value=16384, create=True):
+                self.assertEqual(resource_monitor._macos_memory_bytes(), (16*1024**3, None))
+            library.mach_port_deallocate.assert_called_once_with(456, 123)
+
+    def test_total_ram_failure_and_unavailable_api_are_safe(self):
+        library = self.library()
+        library.sysctlbyname.side_effect = None
+        library.sysctlbyname.return_value = -1
+        with patch.object(resource_monitor, "_macos_system_library", return_value=library):
+            self.assertEqual(resource_monitor._macos_memory_bytes(), (None, None))
+        library.mach_host_self.assert_not_called()
+        with patch.object(resource_monitor, "_macos_system_library", side_effect=OSError):
+            self.assertEqual(resource_monitor._macos_memory_bytes(), (None, None))
+
+    def test_zero_available_ram_is_preserved_and_large_counters_are_bounded(self):
+        for pages, expected in ((0, 0), (2**32-1, 16*1024**3)):
+            with self.subTest(pages=pages), patch.object(
+                resource_monitor, "_macos_system_library",
+                return_value=self.library(free_pages=pages, inactive_pages=0),
+            ), patch.object(resource_monitor.os, "sysconf", return_value=16384, create=True):
+                self.assertEqual(resource_monitor._macos_memory_bytes(), (16*1024**3, expected))
+
+    def test_macos_readings_refresh_and_reach_snapshot_and_planner(self):
+        library = self.library(free_pages=100000, inactive_pages=100000)
+        with patch.object(resource_monitor.sys, "platform", "darwin"), patch.object(
+            resource_monitor, "_macos_system_library", return_value=library
+        ), patch.object(resource_monitor.os, "sysconf", return_value=16384, create=True), patch(
+            "torch.cuda.is_available", return_value=False
+        ), patch("torch.backends.mps.is_available", return_value=False):
+            monitor = resource_monitor.ResourceMonitor("cpu")
+            first = monitor.snapshot()
+            second = monitor.snapshot()
+        self.assertEqual(library.host_statistics.call_count, 2)
+        self.assertEqual(first.total_system_ram_mb, 16384)
+        self.assertEqual(second.available_system_ram_mb, 3125)
+        with TemporaryDirectory() as folder:
+            planner = AdaptiveSectionPlanner(
+                model_id="turbo", mode="automatic", manual_words=120,
+                minimum_words=20, maximum_words=160, safety_margin_mb=1024,
+                growth_interval=3, monitor=monitor,
+                profile_store=RuntimeProfileStore(Path(folder)/"profiles.json"),
+                after_load_snapshot=second,
+            )
+            self.assertEqual(planner.current_words, 40)
+            self.assertEqual(planner.report(second)["available_system_ram_after_load_mb"], 3125)
+
+    def test_non_macos_systems_keep_the_existing_sysconf_route(self):
+        with patch.object(resource_monitor.sys, "platform", "linux"), patch.object(
+            resource_monitor, "os", SimpleNamespace(
+                name="posix", sysconf=lambda key: {
+                    "SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 10000,
+                    "SC_AVPHYS_PAGES": 2500,
+                }[key],
+            )
+        ), patch.object(resource_monitor, "_macos_memory_bytes") as native:
+            self.assertEqual(resource_monitor._system_memory_bytes(), (40960000, 10240000))
+        native.assert_not_called()
 
 
 if __name__ == "__main__":

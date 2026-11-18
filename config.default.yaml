@@ -39,12 +39,12 @@ automatic_max_words: 160
 # Free VRAM kept in reserve while automatic mode chooses a section size.
 vram_safety_margin_mb: 1024
 
-# Successful CUDA sections required before cautiously increasing the size.
+# Successful GPU sections required before cautiously increasing the size.
 adaptive_growth_interval: 3
 
 cpu_fallback: true
 
-# auto follows the model recommendation; alternatives are cuda and cpu.
+# auto follows the model recommendation; alternatives are cuda, mps, and cpu.
 device_preference: auto
 
 # Chatterbox generation controls

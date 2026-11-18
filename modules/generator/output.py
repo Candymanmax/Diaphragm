@@ -92,6 +92,6 @@ class ChunkOutputWriter:
                 if wav is not None:
                     del wav
 
-                generator._release_cuda_memory()
+                    generator._release_accelerator_memory()
 
         return generated_outputs

@@ -61,6 +61,8 @@ class GenerationWorkerCommands:
         ]
         if runtime.get("peak_vram_mb") is not None:
             parts.append(f"peak VRAM {runtime['peak_vram_mb']:.0f} MiB")
+        if runtime.get("device") == "mps" and runtime.get("mps_allocated_memory_mb") is not None:
+            parts.append(f"Metal tensors {runtime['mps_allocated_memory_mb']:.0f} MiB")
         if runtime.get("words_per_second") is not None:
             parts.append(f"{runtime['words_per_second']:.2f} words/s")
         if runtime.get("real_time_factor") is not None:

@@ -18,6 +18,7 @@ env/
 ENV/
 
 # Temporary and local runtime files
+/tmp/
 *.tmp
 *.temp
 *.log

@@ -191,6 +191,25 @@ class AppSettingsTests(unittest.TestCase):
         )
         self.assertTrue(repository.paths.config_file.is_file())
 
+    def test_macos_settings_and_runtime_share_application_support(self):
+        from modules.runtime_manager import RuntimeManager
+
+        home = self.root / "home"
+        with (
+            patch("sys.platform", "darwin"),
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(Path, "home", return_value=home),
+        ):
+            repository = SettingsRepository.for_application(
+                self.project, settings=self.settings
+            )
+            manager = RuntimeManager()
+
+        expected = (home / "Library" / "Application Support" / "Diaphragm").resolve()
+        self.assertEqual(repository.paths.data_root, expected)
+        self.assertEqual(manager.root, expected / "runtime")
+        self.assertTrue(repository.paths.config_file.is_file())
+
     def test_library_migration_suffixes_files_and_remaps_job_ids(self):
         source = self.root / "source"
         destination = self.root / "destination"

@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from harness_ui.dialogs import AppDialog
 from harness_ui.theme import RED
 from modules.jobs import JobStoreError
+from modules.platform_support import trash_name
 
 
 class JobLifecycleCommands:
@@ -194,11 +195,11 @@ class JobLifecycleCommands:
         title = names[0] if len(names) == 1 else f"{len(names)} scripts"
         if not AppDialog.confirm(
             self.parent_window,
-            "Move job to Recycle Bin",
+            f"Move job to {trash_name()}",
             f"Delete the job '{title}' and its cached job data?\n\n"
-            "The job folder will be moved to the Recycle Bin. Published "
+            f"The job folder will be moved to the {trash_name()}. Published "
             "audio in the final folder will be kept.",
-            confirm_text="Move to Recycle Bin",
+            confirm_text=f"Move to {trash_name()}",
             cancel_text="Cancel",
             confirm_role="danger",
             icon_name="trash-2",
@@ -215,13 +216,13 @@ class JobLifecycleCommands:
             AppDialog.critical(
                 self.parent_window,
                 "Could not delete job",
-                "Windows could not move the job to the Recycle Bin. "
+                f"Could not move the job to the {trash_name()}. "
                 "The job was left unchanged.",
             )
             return
         self.reset_view()
         self.refresh()
         self._status_message(
-            f"Moved job '{title}' to the Recycle Bin; output files kept",
+            f"Moved job '{title}' to the {trash_name()}; output files kept",
             5000,
         )

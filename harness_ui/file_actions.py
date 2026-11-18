@@ -29,7 +29,7 @@ def atomic_write_text(path, text):
 
 
 def move_to_trash(path):
-    """Move one user-selected file to the platform Recycle Bin."""
+    """Move a user-selected file or folder to the platform's trash."""
 
     result = QFile.moveToTrash(str(path))
     return result[0] if isinstance(result, tuple) else bool(result)

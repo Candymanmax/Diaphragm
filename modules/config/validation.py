@@ -97,9 +97,9 @@ def validate_pipeline_config(config):
             "Config 'splitting_mode' must be automatic or manual"
         )
 
-    if config.device_preference not in {"auto", "cuda", "cpu"}:
+    if config.device_preference not in {"auto", "cuda", "mps", "cpu"}:
         raise ValueError(
-            "Config 'device_preference' must be auto, cuda, or cpu"
+            "Config 'device_preference' must be auto, cuda, mps, or cpu"
         )
 
     float_fields = {

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -74,6 +76,8 @@ class AppDialog(QDialog):
         self.setModal(True)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        if sys.platform == "darwin":
+            self._close_shortcut = QShortcut(QKeySequence.StandardKey.Close, self, activated=self.reject)
         self.setAttribute(
             Qt.WidgetAttribute.WA_TranslucentBackground,
             bool(translucent_background),

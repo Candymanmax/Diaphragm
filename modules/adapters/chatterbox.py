@@ -1,6 +1,5 @@
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
-import gc
 import inspect
 from numbers import Integral
 import os
@@ -20,6 +19,7 @@ from modules.adapters.base import (
     VoicePreparationError,
 )
 from modules.adapters.registry import supported_generation_options
+from modules.resources import release_device_memory
 from modules.app_settings import CredentialStore, CredentialStoreError
 from modules.model_inventory import inspect_model_inventory
 
@@ -303,10 +303,7 @@ class _ChatterboxAdapter(TTSModelAdapter):
         self._prepared_voice = None
         self._prepared_exaggeration = None
 
-        gc.collect()
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        release_device_memory(self.device)
 
 
 class ChatterboxOriginalAdapter(_ChatterboxAdapter):

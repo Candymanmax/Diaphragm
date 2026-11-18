@@ -1,6 +1,9 @@
 """Job-search and keyboard-shortcut dialog shell."""
 
+import sys
+
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -27,6 +30,8 @@ class SearchDialog(QDialog):
         self.setWindowTitle("Keyboard shortcuts" if shortcuts_mode else "Search jobs")
         self.setModal(True)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        if sys.platform == "darwin":
+            self._close_shortcut = QShortcut(QKeySequence.StandardKey.Close, self, activated=self.reject)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(520, 470)
 

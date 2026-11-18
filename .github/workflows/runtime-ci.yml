@@ -1,0 +1,59 @@
+name: Runtime setup
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-tests:
+    name: Runtime policy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Test runtime setup without GUI or model dependencies
+        run: python -B -m unittest discover -s tests -p test_runtime_manager.py -v
+
+      - name: Test Mac source launcher setup
+        run: python -B -m unittest discover -s tests -p test_macos_launcher.py -v
+
+      - name: Install and verify native Apple Silicon runtime
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import tempfile
+
+          from modules.runtime_manager import RuntimeManager
+
+          with tempfile.TemporaryDirectory() as temporary:
+              manager = RuntimeManager(Path(temporary) / "Diaphragm")
+              assert manager.setup_error() is None
+              assert manager.spec.variant == "macos"
+              for command in (
+                  manager.venv_command(manager.bootstrap_command()),
+                  manager.install_command(),
+                  manager.verify_command(),
+              ):
+                  program, arguments = command
+                  subprocess.run([program, *arguments], check=True)
+              assert manager.validate(manager.python_path)
+              manager.activate()
+              import torch
+              import torchaudio
+              print(f"Native runtime loaded: torch={torch.__version__}, torchaudio={torchaudio.__version__}")
+          PY

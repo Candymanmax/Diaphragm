@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QByteArray, Qt
+from PySide6.QtGui import QKeySequence
 
 from harness_ui.icons import lucide_icon
 from harness_ui.theme import ACCENT_COLORS, SUBTEXT_0
@@ -65,7 +66,7 @@ class AppearanceViewAdapter:
             )
             commands.sidebar_toggle_button.setAccessibleName(action_name)
             commands.sidebar_toggle_button.setToolTip(
-                f"{action_name} (Ctrl+B)"
+                f"{action_name} ({commands.view_sidebar_action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)})"
             )
             self._sync_checkable(commands.sidebar_toggle_button, sidebar_visible)
             self._sync_checkable(commands.view_sidebar_action, sidebar_visible)

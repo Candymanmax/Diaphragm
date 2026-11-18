@@ -11,6 +11,7 @@ from harness_ui.dialogs import AppDialog
 from harness_ui.preferences.common import set_feedback
 from harness_ui.preferences.workers import _TokenVerifyTask
 from modules.app_settings import CredentialStoreError
+from modules.platform_support import credential_store_name
 
 
 @dataclass(frozen=True)
@@ -87,8 +88,7 @@ class CredentialPreferencesController(QObject):
         token, accepted = AppDialog.get_text(
             self.dialog,
             "Hugging Face token",
-            "Enter your access token. It will be stored securely in Windows "
-            "Credential Manager.",
+            f"Enter your access token. It will be stored securely in {credential_store_name()}.",
             label_text="Access token",
             placeholder_text="hf_…",
             echo_mode=QLineEdit.EchoMode.Password,
@@ -112,7 +112,7 @@ class CredentialPreferencesController(QObject):
 
         set_feedback(
             self.dialog.credentials_feedback,
-            "Token saved in Windows Credential Manager.",
+            f"Token saved in {credential_store_name()}.",
         )
         self.refresh_status()
 
@@ -120,7 +120,7 @@ class CredentialPreferencesController(QObject):
         if not AppDialog.confirm(
             self.dialog,
             "Clear Hugging Face token",
-            "Remove the saved token from Windows Credential Manager?",
+            f"Remove the saved token from {credential_store_name()}?",
             confirm_text="Clear token",
             cancel_text="Keep token",
             confirm_role="danger",

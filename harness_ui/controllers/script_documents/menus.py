@@ -3,6 +3,7 @@
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QMenu
+from modules.platform_support import trash_name
 
 
 class ScriptMenuCommands:
@@ -68,7 +69,7 @@ class ScriptMenuCommands:
             "scriptContextDelete",
         )
         delete_action.setToolTip(
-            "Move the text file to the Recycle Bin"
+            f"Move the text file to the {trash_name()}"
             if path is not None
             else "Discard this unsaved script"
         )

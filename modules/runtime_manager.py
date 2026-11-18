@@ -10,10 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import platform
 import shutil
 import struct
 import subprocess
 import sys
+
+from modules.platform_paths import local_app_data_root
 
 
 PYTORCH_VERSION = "2.6.0"
@@ -24,11 +27,13 @@ CUDA_VERSION = "12.6"
 # the packaged application that imports it.
 RUNTIME_PYTHON_VERSION = (sys.version_info.major, sys.version_info.minor)
 RUNTIME_ARCHITECTURE_BITS = struct.calcsize("P") * 8
+RUNTIME_MACHINE = platform.machine().lower()
 RUNTIME_FOLDER_NAME = "runtime"
 RUNTIME_PYTHON_ENVIRONMENT = "DIAPHRAGM_RUNTIME_PYTHON"
 
 CPU_INDEX_URL = "https://download.pytorch.org/whl/cpu"
 CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu126"
+MACOS_INDEX_URL = "https://pypi.org/simple"
 _DLL_DIRECTORY_HANDLES = {}
 
 
@@ -39,7 +44,7 @@ class RuntimeSpec:
     variant: str
     display_name: str
     index_url: str
-    torch_suffix: str
+    torch_suffix: str | None
     cuda_version: str | None = None
 
 
@@ -55,6 +60,15 @@ CUDA_RUNTIME = RuntimeSpec(
     index_url=CUDA_INDEX_URL,
     torch_suffix="+cu126",
     cuda_version=CUDA_VERSION,
+)
+# The macOS wheel supports CPU and Metal in the same package, and has no
+# Windows/Linux-style +cpu suffix. MPS availability is an inference choice,
+# not a prerequisite for installing or reusing this runtime.
+MACOS_RUNTIME = RuntimeSpec(
+    variant="macos",
+    display_name="macOS",
+    index_url=MACOS_INDEX_URL,
+    torch_suffix=None,
 )
 
 
@@ -75,14 +89,14 @@ class RuntimeSetupResult:
 
 
 def _default_data_root():
-    configured = os.environ.get("LOCALAPPDATA")
-    if configured:
-        return Path(configured).expanduser().resolve() / "Diaphragm"
-    return (Path.home() / ".local" / "share" / "Diaphragm").resolve()
+    return local_app_data_root() / "Diaphragm"
 
 
 def detect_runtime_spec():
-    """Choose CUDA only when Windows reports a usable NVIDIA device."""
+    """Select native macOS wheels, or CPU/CUDA wheels on other platforms."""
+
+    if sys.platform == "darwin":
+        return MACOS_RUNTIME
 
     nvidia_smi = shutil.which("nvidia-smi")
     if nvidia_smi:
@@ -104,17 +118,21 @@ def detect_runtime_spec():
     return CPU_RUNTIME
 
 
+def _python_abi_check_code():
+    return (
+        "import platform, struct, sys; "
+        f"assert sys.version_info[:2] == {RUNTIME_PYTHON_VERSION!r}; "
+        f"assert struct.calcsize('P') * 8 == {RUNTIME_ARCHITECTURE_BITS!r}; "
+        f"assert platform.machine().lower() == {RUNTIME_MACHINE!r}; "
+    )
+
+
 def _version_check_command(program, arguments=()):
     return [
         str(program),
         *[str(argument) for argument in arguments],
         "-c",
-        (
-            "import struct, sys; raise SystemExit(0 if "
-            f"sys.version_info[:2] == {RUNTIME_PYTHON_VERSION!r} and "
-            "struct.calcsize('P') * 8 == "
-            f"{RUNTIME_ARCHITECTURE_BITS!r} else 1)"
-        ),
+        _python_abi_check_code(),
     ]
 
 
@@ -139,7 +157,7 @@ def find_bootstrap_python():
     if not getattr(sys, "frozen", False):
         candidates.append(PythonCommand(sys.executable))
 
-    launcher = shutil.which("py")
+    launcher = shutil.which("py") if sys.platform == "win32" else None
     if launcher:
         version = ".".join(str(part) for part in RUNTIME_PYTHON_VERSION)
         for launcher_argument in (f"-{version}", "-3"):
@@ -151,9 +169,20 @@ def find_bootstrap_python():
         if resolved:
             candidates.append(PythonCommand(resolved))
 
+    if sys.platform == "darwin":
+        # Finder-launched apps often lack Homebrew/python.org entries in PATH.
+        for directory in (
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path(f"/Library/Frameworks/Python.framework/Versions/{version}/bin"),
+        ):
+            executable = directory / f"python{version}"
+            if executable.is_file():
+                candidates.append(PythonCommand(str(executable)))
+
     seen = set()
     for candidate in candidates:
-        identity = (str(candidate.program).casefold(), candidate.arguments)
+        identity = (os.path.normcase(str(candidate.program)), candidate.arguments)
         if identity in seen:
             continue
         seen.add(identity)
@@ -170,20 +199,21 @@ def runtime_python_path(runtime_root):
     return runtime_root / "bin" / "python"
 
 
+def _absolute_python_path(python_path):
+    # Resolving bin/python itself follows a venv's symlink to the base Python,
+    # losing both the environment during validation and its package directory.
+    python_path = Path(python_path).expanduser()
+    return python_path.parent.resolve() / python_path.name
+
+
 def _site_packages_for(python_path):
-    python_path = Path(python_path).expanduser().resolve()
+    python_path = _absolute_python_path(python_path)
     runtime_root = python_path.parent.parent
     if os.name == "nt":
         return runtime_root / "Lib" / "site-packages"
 
-    candidates = sorted(
-        runtime_root.glob("lib/python*/site-packages"),
-        key=lambda path: str(path),
-        reverse=True,
-    )
-    if candidates:
-        return candidates[0]
-    return runtime_root / "lib" / "python" / "site-packages"
+    version = ".".join(str(part) for part in RUNTIME_PYTHON_VERSION)
+    return runtime_root / "lib" / f"python{version}" / "site-packages"
 
 
 def activate_runtime_imports(python_path=None):
@@ -198,7 +228,7 @@ def activate_runtime_imports(python_path=None):
     if not candidate:
         return None
 
-    candidate = Path(candidate).expanduser().resolve()
+    candidate = _absolute_python_path(candidate)
     if not candidate.is_file():
         raise RuntimeError(f"The configured runtime Python is missing: {candidate}")
 
@@ -242,19 +272,30 @@ class RuntimeManager:
     def python_path(self):
         return runtime_python_path(self.root)
 
+    def setup_error(self):
+        """Explain unsupported macOS architectures before attempting pip."""
+
+        if sys.platform == "darwin" and RUNTIME_MACHINE != "arm64":
+            return (
+                f"PyTorch {PYTORCH_VERSION} on macOS requires Apple Silicon "
+                "(arm64). Use an arm64 build of Diaphragm and Python; Intel "
+                "and Rosetta runtimes are not supported."
+            )
+        return None
+
     def candidate_paths(self):
         candidates = []
         configured = os.environ.get(RUNTIME_PYTHON_ENVIRONMENT)
         if configured:
-            candidates.append(Path(configured).expanduser().resolve())
+            candidates.append(_absolute_python_path(configured))
         if not getattr(sys, "frozen", False):
-            candidates.append(Path(sys.executable).expanduser().resolve())
+            candidates.append(_absolute_python_path(sys.executable))
         candidates.append(self.python_path)
 
         unique = []
         seen = set()
         for candidate in candidates:
-            identity = str(candidate).casefold()
+            identity = os.path.normcase(str(candidate))
             if identity in seen:
                 continue
             seen.add(identity)
@@ -270,29 +311,11 @@ class RuntimeManager:
     def validate(self, python_path):
         """Verify Python ABI, pinned packages, and the accelerator build."""
 
-        python_path = Path(python_path).expanduser().resolve()
+        python_path = _absolute_python_path(python_path)
         if not python_path.is_file():
             return False
 
-        code = (
-            "import struct, sys, torch, torchaudio; "
-            f"assert sys.version_info[:2] == {RUNTIME_PYTHON_VERSION!r}; "
-            "assert struct.calcsize('P') * 8 == "
-            f"{RUNTIME_ARCHITECTURE_BITS!r}; "
-            f"assert torch.__version__.split('+', 1)[0] == {PYTORCH_VERSION!r}; "
-            f"assert torchaudio.__version__.split('+', 1)[0] == {TORCHAUDIO_VERSION!r}; "
-            f"assert {self.spec.torch_suffix!r} in torch.__version__; "
-        )
-        if self.spec.variant == "cuda":
-            code += (
-                f"assert torch.version.cuda == {self.spec.cuda_version!r}; "
-                "assert torch.cuda.is_available();"
-            )
-        else:
-            code += (
-                "assert torch.version.cuda is None; "
-                "assert not torch.cuda.is_available();"
-            )
+        code = self._verification_code()
 
         try:
             result = subprocess.run(
@@ -340,16 +363,17 @@ class RuntimeManager:
             ),
         )
 
-    def verify_command(self):
-        code = (
-            "import struct, sys, torch, torchaudio; "
-            f"assert sys.version_info[:2] == {RUNTIME_PYTHON_VERSION!r}; "
-            "assert struct.calcsize('P') * 8 == "
-            f"{RUNTIME_ARCHITECTURE_BITS!r}; "
+    def _verification_code(self):
+        code = _python_abi_check_code() + (
+            "import torch, torchaudio; "
             f"assert torch.__version__.split('+', 1)[0] == {PYTORCH_VERSION!r}; "
             f"assert torchaudio.__version__.split('+', 1)[0] == {TORCHAUDIO_VERSION!r}; "
-            f"assert {self.spec.torch_suffix!r} in torch.__version__; "
         )
+        if self.spec.torch_suffix is not None:
+            code += (
+                f"assert torch.__version__.endswith({self.spec.torch_suffix!r}); "
+                f"assert torchaudio.__version__.endswith({self.spec.torch_suffix!r}); "
+            )
         if self.spec.variant == "cuda":
             code += (
                 f"assert torch.version.cuda == {self.spec.cuda_version!r}; "
@@ -360,7 +384,10 @@ class RuntimeManager:
                 "assert torch.version.cuda is None; "
                 "assert not torch.cuda.is_available();"
             )
-        return str(self.python_path), ("-c", code)
+        return code
+
+    def verify_command(self):
+        return str(self.python_path), ("-c", self._verification_code())
 
     def activate(self, python_path=None):
         return activate_runtime_imports(python_path or self.python_path)
@@ -372,10 +399,13 @@ __all__ = [
     "CUDA_INDEX_URL",
     "CUDA_RUNTIME",
     "CUDA_VERSION",
+    "MACOS_INDEX_URL",
+    "MACOS_RUNTIME",
     "PYTORCH_VERSION",
     "PythonCommand",
     "RUNTIME_FOLDER_NAME",
     "RUNTIME_ARCHITECTURE_BITS",
+    "RUNTIME_MACHINE",
     "RUNTIME_PYTHON_VERSION",
     "RUNTIME_PYTHON_ENVIRONMENT",
     "RuntimeManager",

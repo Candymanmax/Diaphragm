@@ -453,10 +453,11 @@ class SettingsPanel(QWidget):
         self.splitting_mode = NoWheelComboBox()
         self.splitting_mode.addItems(("automatic", "manual"))
         self.device_preference = NoWheelComboBox()
-        self.device_preference.addItems(("auto", "cuda", "cpu"))
-        self.cpu_fallback = QCheckBox("Use CPU after CUDA OOM")
+        self.device_preference.addItems(("auto", "cuda", "mps", "cpu"))
+        self.cpu_fallback = QCheckBox("Allow CPU fallback")
         self.cpu_fallback.setToolTip(
-            "Continue generation on the CPU if CUDA runs out of memory."
+            "Use CPU if the requested GPU is unavailable or runs out of memory, "
+            "or if an operation is unsupported on MPS."
         )
         self.generation_max_words = _integer(1, 2000)
         self.automatic_min_words = _integer(1, 2000)
@@ -474,13 +475,13 @@ class SettingsPanel(QWidget):
         form.addRow("Device", self.device_preference)
         self._add_helper_text(
             form,
-            "Auto uses CUDA when available; CPU is the fallback.",
+            "Auto follows the model recommendation, using CUDA or Apple MPS when available.",
         )
         form.addRow("Fallback", self.cpu_fallback)
         form.addRow("Manual section limit", self.generation_max_words)
         form.addRow("Automatic minimum", self.automatic_min_words)
         form.addRow("Automatic maximum", self.automatic_max_words)
-        form.addRow("VRAM reserve", self.vram_safety_margin_mb)
+        form.addRow("GPU memory reserve", self.vram_safety_margin_mb)
         form.addRow("Grow after successes", self.adaptive_growth_interval)
         form.addRow("Persistent chunk target", self.chunk_size)
         form.addRow("Minimum persistent chunk", self.min_chunk_size)

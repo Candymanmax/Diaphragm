@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QDialog
+from PySide6.QtGui import QKeySequence, QShortcut
 
 from harness_ui.preferences.common import set_feedback
 from harness_ui.preferences.credentials import CredentialPreferencesController
@@ -55,10 +58,12 @@ class PreferencesDialog(QDialog):
         self._close_pending = False
         self.setObjectName("preferencesDialog")
         self.setWindowTitle("Preferences")
-        self.setWindowFlags(
-            Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setWindowFlags(Qt.WindowType.Dialog)
+        if sys.platform == "darwin":
+            self._close_shortcut = QShortcut(QKeySequence.StandardKey.Close, self, activated=self.close)
+        else:
+            self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setModal(False)
         self.resize(940, 680)
         self.setMinimumSize(820, 580)

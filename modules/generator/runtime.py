@@ -29,7 +29,15 @@ def print_detected_resources(generator):
         else "system RAM unavailable"
     )
 
-    if snapshot.cuda_available and snapshot.gpu_name:
+    if snapshot.active_device == "mps":
+        print(f"Detected Apple Metal (MPS); {system_text}")
+        emit_event(
+            getattr(generator, "event_callback", None),
+            "resources.detected",
+            "Detected Apple Metal (MPS)",
+            payload={"resources": snapshot.to_dict()},
+        )
+    elif snapshot.cuda_available and snapshot.gpu_name:
         vram_text = (
             f", {snapshot.free_vram_mb:.0f}/"
             f"{snapshot.total_vram_mb:.0f} MiB VRAM free"
@@ -50,17 +58,22 @@ def print_detected_resources(generator):
             payload={"resources": snapshot.to_dict()},
         )
     else:
-        print(f"CUDA unavailable; {system_text}")
+        print(f"Using CPU; {system_text}")
         emit_event(
             getattr(generator, "event_callback", None),
             "resources.detected",
-            "CUDA unavailable; using system memory",
+            "Using CPU and system memory",
             payload={"resources": snapshot.to_dict()},
         )
 
 
 def print_after_load_resources(generator, snapshot):
-    if generator.device == "cuda" and snapshot.free_vram_mb is not None:
+    if generator.device == "mps" and snapshot.mps_driver_memory_mb is not None:
+        memory = (
+            f"{snapshot.mps_driver_memory_mb:.0f} MiB Metal driver memory "
+            "after model and voice loading"
+        )
+    elif generator.device == "cuda" and snapshot.free_vram_mb is not None:
         memory = (
             f"{snapshot.free_vram_mb:.0f} MiB VRAM free after model "
             f"and voice loading (safety margin "
@@ -101,6 +114,10 @@ def summarize_runtime(report):
 
     if peak is not None:
         details.append(f"peak VRAM {peak:.0f} MiB")
+
+    mps_allocated = report.get("mps_allocated_memory_mb")
+    if report.get("device") == "mps" and mps_allocated is not None:
+        details.append(f"Metal tensors {mps_allocated:.0f} MiB")
 
     if speed is not None:
         details.append(f"{speed:.2f} words/s")

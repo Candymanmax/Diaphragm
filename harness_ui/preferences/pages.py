@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from harness_ui.icons import lucide_icon
 from harness_ui.model_manager import ModelManagerWidget
+from modules.platform_support import credential_store_name
 from harness_ui.theme import (
     ACCENT_COLORS,
     COMPACT_SPACING,
@@ -100,7 +103,8 @@ class PreferencesPageBuilder:
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.setSpacing(0)
-        panel_layout.addWidget(DialogTitleBar(dialog))
+        if sys.platform != "darwin":
+            panel_layout.addWidget(DialogTitleBar(dialog))
 
         body = QWidget()
         body_layout = QHBoxLayout(body)
@@ -368,7 +372,7 @@ class PreferencesPageBuilder:
         dialog = self.dialog
         page, layout, dialog.credentials_feedback = self._page(
             "Credentials",
-            "An optional Hugging Face token can improve model-download limits. It is stored only in Windows Credential Manager.",
+            f"An optional Hugging Face token can improve model-download limits. It is stored in {credential_store_name()}.",
         )
 
         service_card = QFrame()

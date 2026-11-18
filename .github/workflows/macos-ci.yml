@@ -1,0 +1,85 @@
+name: macOS CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-build:
+    name: Apple Silicon tests and app build
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up native Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11.9"
+          architecture: arm64
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Verify Apple Silicon runner
+        run: python -c "import platform; assert platform.machine() == 'arm64', platform.machine()"
+
+      - name: Create project runtime
+        run: python -m venv .runtime
+
+      - name: Install project and build dependencies
+        run: |
+          .runtime/bin/python -m pip install --disable-pip-version-check --no-input -r requirements.txt
+          .runtime/bin/python -m pip install --disable-pip-version-check --no-input 'pyinstaller>=6,<7' pillow
+          .runtime/bin/python -m pip check
+
+      - name: Run desktop and runtime tests
+        run: .runtime/bin/python -B -m unittest discover -s tests -p 'test*.py' -v
+
+      - name: Audit current commit candidates
+        run: .runtime/bin/python -B privacy_check.py --current-only
+
+      - name: Build and archive macOS application
+        run: .runtime/bin/python -B tools/macos_package.py build
+
+      - name: Create isolated speech runtime for package checks
+        run: |
+          python -m venv .smoke-runtime
+          .smoke-runtime/bin/python -m pip install --disable-pip-version-check --no-input \
+            torch==2.6.0 torchaudio==2.6.0 --index-url https://pypi.org/simple
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Diaphragm-macos-arm64
+          path: dist/Diaphragm-macos-arm64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Download uploaded macOS package
+        uses: actions/download-artifact@v8
+        with:
+          name: Diaphragm-macos-arm64
+          path: ${{ runner.temp }}/Diaphragm-artifact-roundtrip
+
+      - name: Verify extracted macOS artifact
+        env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/Diaphragm-artifact-roundtrip
+        run: |
+          .runtime/bin/python -B tools/macos_package.py verify \
+            "$ARTIFACT_DIRECTORY/Diaphragm-macos-arm64.zip" \
+            --runtime-python "$PWD/.smoke-runtime/bin/python"

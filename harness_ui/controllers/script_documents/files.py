@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QFileDialog, QListWidgetItem
 
 from harness_ui.controllers.script_documents.state import SCRIPT_TEXT_ROLE
 from harness_ui.dialogs import AppDialog, RecycleBinDialog
+from modules.platform_support import trash_name
 
 
 class ScriptFileCommands:
@@ -144,7 +145,7 @@ class ScriptFileCommands:
                 AppDialog.critical(
                     self.parent_window,
                     "Could not delete script",
-                    "Windows could not move the file to the Recycle Bin. "
+                    f"Could not move the file to the {trash_name()}. "
                     "The file was left unchanged.",
                 )
                 return
@@ -152,7 +153,7 @@ class ScriptFileCommands:
         self.remove_row(row)
         self._status_message(
             (
-                f"Moved {path.name} to the Recycle Bin"
+                f"Moved {path.name} to the {trash_name()}"
                 if existed
                 else f"Removed missing file {path.name} from the list"
             ),

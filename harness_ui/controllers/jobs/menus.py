@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QMenu
 
 from harness_ui.dialogs import AppDialog
 from modules.jobs import JobStoreError
+from modules.platform_support import trash_name
 
 
 class JobMenuCommands:
@@ -95,7 +96,7 @@ class JobMenuCommands:
         delete_action.setToolTip(
             "Remove this unsaved draft from the job list"
             if temporary
-            else "Move job history and cached data to the Recycle Bin"
+            else f"Move job history and cached data to the {trash_name()}"
         )
         delete_action.setEnabled(not active and not self.worker.running)
         delete_action.triggered.connect(

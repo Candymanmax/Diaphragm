@@ -143,6 +143,7 @@ def main(argv=None):
     _set_windows_app_identity()
     application = QApplication.instance() or QApplication(sys.argv[:1])
     application.setApplicationName("Diaphragm")
+    application.setApplicationDisplayName("Diaphragm")
     application.setApplicationVersion(APP_VERSION)
     application.setOrganizationName("Diaphragm")
     application.setStyle("Fusion")

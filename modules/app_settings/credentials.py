@@ -13,6 +13,7 @@ import uuid
 from PySide6.QtCore import QObject, QSettings, Signal
 
 from modules.app_settings.models import CredentialStoreError
+from modules.platform_support import credential_store_name
 
 class CredentialStore:
     """Small keyring-backed store that never exposes credentials in settings."""
@@ -44,7 +45,7 @@ class CredentialStore:
             )
         except Exception as error:
             raise CredentialStoreError(
-                "Windows Credential Manager could not be read."
+                f"{credential_store_name()} could not be read."
             ) from error
 
     def has_token(self):
@@ -64,7 +65,7 @@ class CredentialStore:
             )
         except Exception as error:
             raise CredentialStoreError(
-                "Windows Credential Manager could not save the token."
+                f"{credential_store_name()} could not save the token."
             ) from error
 
     def clear_token(self):
@@ -79,5 +80,5 @@ class CredentialStore:
             # Keyring backends use different missing-entry exceptions.
             if "not found" not in str(error).lower():
                 raise CredentialStoreError(
-                    "Windows Credential Manager could not clear the token."
+                    f"{credential_store_name()} could not clear the token."
                 ) from error

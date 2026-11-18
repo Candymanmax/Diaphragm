@@ -11,6 +11,8 @@ import uuid
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
+from modules.platform_paths import local_app_data_root
+
 from modules.app_settings.models import (
     PREFERENCES_SCHEMA_VERSION,
     SUPPORTED_ACCENTS,
@@ -18,15 +20,6 @@ from modules.app_settings.models import (
     AppPreferences,
     SettingsError,
 )
-
-def _local_app_data_root():
-    configured = os.environ.get("LOCALAPPDATA")
-
-    if configured:
-        return Path(configured).expanduser().resolve()
-
-    return (Path.home() / ".local" / "share").resolve()
-
 
 def _atomic_copy(source, destination):
     source = Path(source)
@@ -132,7 +125,7 @@ class SettingsRepository(QObject):
         )
 
     def _resolve_paths(self):
-        data_root = self._data_root_override or _local_app_data_root() / "Diaphragm"
+        data_root = self._data_root_override or local_app_data_root() / "Diaphragm"
         library_root = Path(
             self.settings.value(
                 "paths/library_root",

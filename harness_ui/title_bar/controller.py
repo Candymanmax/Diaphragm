@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QMenuBar, QWidget
 
 from harness_ui.icons import lucide_icon
 from harness_ui.theme import SUBTEXT_1
@@ -12,7 +14,7 @@ from .bar import FramelessTitleBar
 
 
 class FramelessWindowController(QObject):
-    """Add Qt-only movement, resizing, and caption controls to a window."""
+    """Use native Mac window chrome or the application's custom frame."""
 
     RESIZE_MARGIN = 6
 
@@ -20,15 +22,26 @@ class FramelessWindowController(QObject):
         super().__init__(window)
         self.window = window
         self.title_bar = None
+        self.menu_bar = None
+        self.uses_native_frame = sys.platform == "darwin"
+        self._maximized_before_fullscreen = False
         self._resizing = False
         self._last_resize_edges = Qt.Edge(0)
         self._application = QApplication.instance()
-        self.window.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.window.setWindowFlag(Qt.WindowType.FramelessWindowHint, not self.uses_native_frame)
+        if self.uses_native_frame:
+            self.window.setWindowFlag(Qt.WindowType.WindowFullscreenButtonHint, True)
 
         if self._application is not None:
             self._application.installEventFilter(self)
 
     def create_menu_bar(self):
+        if self.uses_native_frame:
+            if self.menu_bar is None:
+                self.menu_bar = QMenuBar(self.window)
+                self.menu_bar.setNativeMenuBar(True)
+                self.window.setMenuBar(self.menu_bar)
+            return self.menu_bar
         if self.title_bar is None:
             self.title_bar = FramelessTitleBar(self.window)
             self.window.setMenuWidget(self.title_bar)
@@ -42,6 +55,16 @@ class FramelessWindowController(QObject):
             self.update_maximize_button()
 
         return self.title_bar.menu_bar
+
+    def toggle_fullscreen(self):
+        if self.window.isFullScreen():
+            if self._maximized_before_fullscreen:
+                self.window.showMaximized()
+            else:
+                self.window.showNormal()
+        else:
+            self._maximized_before_fullscreen = self.window.isMaximized()
+            self.window.showFullScreen()
 
     def toggle_maximized(self):
         if self.window.isMaximized():
@@ -91,6 +114,9 @@ class FramelessWindowController(QObject):
         ):
             self._resizing = False
             self._clear_resize_cursor()
+            return super().eventFilter(watched, event)
+
+        if self.uses_native_frame:
             return super().eventFilter(watched, event)
 
         if event_type not in (

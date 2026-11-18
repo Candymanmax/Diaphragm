@@ -16,6 +16,7 @@ from harness_ui.dialogs.app_dialog import AppDialog
 from harness_ui.theme import TEAL, set_button_role
 from modules.runtime_manager import (
     RUNTIME_ARCHITECTURE_BITS,
+    RUNTIME_MACHINE,
     RUNTIME_PYTHON_VERSION,
     RuntimeManager,
     RuntimeSetupResult,
@@ -123,6 +124,11 @@ class RuntimeSetupDialog(AppDialog):
         self.status_label.update()
 
     def _begin_setup(self):
+        setup_error = self.manager.setup_error()
+        if setup_error:
+            self._fail("This runtime architecture is unsupported.", detail=setup_error)
+            return
+
         if self.bootstrap is None:
             python_version = ".".join(
                 str(part) for part in RUNTIME_PYTHON_VERSION
@@ -132,7 +138,8 @@ class RuntimeSetupDialog(AppDialog):
                 f"{python_version}, then choose Retry.",
                 detail=(
                     "The speech runtime must match this Diaphragm build's "
-                    "Python version so native PyTorch files can load."
+                    f"Python version and architecture ({RUNTIME_MACHINE}) "
+                    "so native PyTorch files can load."
                 ),
             )
             return

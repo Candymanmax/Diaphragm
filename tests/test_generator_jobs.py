@@ -16,6 +16,7 @@ class PersistentGeneratorTests(unittest.TestCase):
         generator.output_folder = Path(output_folder)
         generator.output_format = "wav"
         generator.sample_rate = 24000
+        generator.device = "cpu"
         return generator
 
     def test_chunk_is_replaced_atomically_before_completion_callback(self):

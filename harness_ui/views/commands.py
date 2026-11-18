@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
-from PySide6.QtWidgets import QMenu, QWidgetAction
+from PySide6.QtWidgets import QApplication, QLineEdit, QMenu, QPlainTextEdit, QTextEdit, QWidgetAction
 
 from harness_ui.theme import ACCENT_COLORS, icon_button, set_button_role
+from harness_ui.dialogs import AppDialog
+from harness_ui.title_bar.window_menu import add_window_menu_row
+from modules.app_settings import APP_VERSION
 
 
 class CommandViewBuilder:
@@ -38,7 +41,7 @@ class CommandViewBuilder:
         self.action_save_script.setShortcut(QKeySequence.StandardKey.Save)
         self.action_run = QAction("Run job", window)
         self.action_run.setShortcut(QKeySequence("Ctrl+Return"))
-        self.action_run.setToolTip("Run checked scripts (Ctrl+Enter)")
+        self.action_run.setToolTip(self.run_tooltip())
         self.action_refresh = QAction("Refresh", window)
         self.action_refresh.setShortcut(QKeySequence.StandardKey.Refresh)
         self.action_settings = QAction("Settings", window)
@@ -50,6 +53,7 @@ class CommandViewBuilder:
         self.action_logs.setShortcut(QKeySequence("Ctrl+L"))
         self.action_preferences = QAction("Preferences…", window)
         self.action_preferences.setShortcut(QKeySequence("Ctrl+,"))
+        self.action_preferences.setMenuRole(QAction.MenuRole.PreferencesRole)
         self.action_shortcuts = QAction("Keyboard shortcuts", window)
         self.accent_menu = QMenu(window)
         self.accent_menu.setObjectName("accentMenu")
@@ -116,6 +120,10 @@ class CommandViewBuilder:
             window.addAction(action)
         return self
 
+    def run_tooltip(self):
+        shortcut = self.action_run.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+        return f"Run checked scripts ({shortcut})"
+
     def render_generation_snapshot(self, snapshot):
         """Render global actions from generation state."""
 
@@ -136,7 +144,7 @@ class CommandViewBuilder:
         enabled = not self._worker_running and bool(self._selected_script_count)
         self.action_run.setEnabled(enabled)
         if enabled:
-            tool_tip = "Run checked scripts (Ctrl+Enter)"
+            tool_tip = self.run_tooltip()
         elif self._worker_running:
             tool_tip = "Pause or cancel the active job before starting another."
         else:
@@ -157,25 +165,27 @@ class CommandViewBuilder:
         scripts = self.workspace.scripts
         menu_bar = window._window_chrome.create_menu_bar()
         menu_bar.setObjectName("appMenuBar")
-        menu_bar.setNativeMenuBar(False)
+        native = window._window_chrome.uses_native_frame
+        menu_bar.setNativeMenuBar(native)
         self.app_menu_bar = menu_bar
         self.sidebar_toggle_button = icon_button(
             role="ghost",
-            parent=menu_bar,
+            parent=self.workspace.header.widget if native else menu_bar,
             object_name="sidebarToggleButton",
             icon_size=17,
             size=(32, 28),
             accessible_name="Toggle sidebar",
-            tool_tip="Toggle sidebar (Ctrl+B)",
+            tool_tip="Toggle sidebar",
             checkable=True,
             auto_raise=True,
         )
         self.sidebar_toggle_button.setChecked(True)
-        self.sidebar_toggle_widget_action = QWidgetAction(menu_bar)
-        self.sidebar_toggle_widget_action.setDefaultWidget(
-            self.sidebar_toggle_button
-        )
-        menu_bar.addAction(self.sidebar_toggle_widget_action)
+        if native:
+            self.workspace.header.header_row.insertWidget(0, self.sidebar_toggle_button)
+        else:
+            self.sidebar_toggle_widget_action = QWidgetAction(menu_bar)
+            self.sidebar_toggle_widget_action.setDefaultWidget(self.sidebar_toggle_button)
+            menu_bar.addAction(self.sidebar_toggle_widget_action)
 
         self.file_menu = menu_bar.addMenu("File")
         self.file_menu.setObjectName("appFileMenu")
@@ -186,6 +196,24 @@ class CommandViewBuilder:
         self.file_menu.addAction(self.action_run)
         self.edit_menu = menu_bar.addMenu("Edit")
         self.edit_menu.setObjectName("appEditMenu")
+        if native:
+            self.edit_actions = {}
+            for operation, label, shortcut in (
+                ("undo", "Undo", QKeySequence.StandardKey.Undo),
+                ("redo", "Redo", QKeySequence.StandardKey.Redo),
+                ("cut", "Cut", QKeySequence.StandardKey.Cut),
+                ("copy", "Copy", QKeySequence.StandardKey.Copy),
+                ("paste", "Paste", QKeySequence.StandardKey.Paste),
+                ("selectAll", "Select All", QKeySequence.StandardKey.SelectAll),
+            ):
+                action = self.edit_menu.addAction(label)
+                action.setShortcut(shortcut)
+                action.triggered.connect(
+                    lambda checked=False, method=operation: self.edit_focused_widget(method)
+                )
+                self.edit_actions[operation] = action
+            self.edit_menu.aboutToShow.connect(self.refresh_edit_actions)
+            self.edit_menu.addSeparator()
         self.edit_menu.addAction(self.action_save_script)
         self.edit_menu.addAction(scripts.script_line_numbers_action)
         self.view_menu = menu_bar.addMenu("View")
@@ -213,6 +241,13 @@ class CommandViewBuilder:
         self.help_menu = menu_bar.addMenu("Help")
         self.help_menu.setObjectName("appHelpMenu")
         self.help_menu.addAction(self.action_shortcuts)
+        if native:
+            self.build_mac_commands()
+            self.window_menu_toolbar, self.window_menu_strip = add_window_menu_row(
+                window,
+                (self.file_menu, self.edit_menu, self.view_menu,
+                 self.settings_menu, self.window_menu, self.help_menu),
+            )
         sidebar_visible = self.settings_store.value(
             "ui/sidebar_visible",
             True,
@@ -223,6 +258,67 @@ class CommandViewBuilder:
             persist=False,
         )
         return self
+
+    def build_mac_commands(self):
+        window = self.window
+        self.action_about = QAction("About Diaphragm", window)
+        self.action_about.setMenuRole(QAction.MenuRole.AboutRole)
+        self.action_about.triggered.connect(
+            lambda: AppDialog.information(window, "About Diaphragm", f"Diaphragm {APP_VERSION}")
+        )
+        self.help_menu.addAction(self.action_about)
+        self.action_close = QAction("Close Window", window)
+        self.action_close.setShortcut(QKeySequence.StandardKey.Close)
+        self.action_close.triggered.connect(self.close_active_window)
+        self.action_quit = QAction("Quit Diaphragm", window)
+        self.action_quit.setShortcut(QKeySequence.StandardKey.Quit)
+        self.action_quit.setMenuRole(QAction.MenuRole.QuitRole)
+        self.action_quit.triggered.connect(window.close)
+        self.file_menu.addSeparator()
+        for action in (self.action_close, self.action_quit):
+            self.file_menu.addAction(action)
+
+        self.window_menu = QMenu("Window", self.app_menu_bar)
+        self.app_menu_bar.insertMenu(self.help_menu.menuAction(), self.window_menu)
+        self.action_minimize = self.window_menu.addAction("Minimize")
+        self.action_minimize.setShortcut(QKeySequence("Ctrl+M"))
+        self.action_minimize.triggered.connect(window.showMinimized)
+        self.action_zoom = self.window_menu.addAction("Zoom")
+        self.action_zoom.triggered.connect(window._window_chrome.toggle_maximized)
+        self.action_fullscreen = self.window_menu.addAction("Enter Full Screen")
+        self.action_fullscreen.setMenuRole(QAction.MenuRole.NoRole)
+        self.action_fullscreen.setShortcut(QKeySequence.StandardKey.FullScreen)
+        self.action_fullscreen.triggered.connect(window._window_chrome.toggle_fullscreen)
+        self.window_menu.aboutToShow.connect(lambda: self.action_fullscreen.setText(
+            "Exit Full Screen" if window.isFullScreen() else "Enter Full Screen"
+        ))
+
+    def edit_focused_widget(self, method):
+        widget = QApplication.focusWidget()
+        if isinstance(widget, (QLineEdit, QPlainTextEdit, QTextEdit)):
+            getattr(widget, method)()
+
+    def close_active_window(self):
+        active = QApplication.activeModalWidget() or QApplication.activeWindow()
+        (active or self.window).close()
+
+    def refresh_edit_actions(self):
+        widget = QApplication.focusWidget()
+        supported = isinstance(widget, (QLineEdit, QPlainTextEdit, QTextEdit))
+        for operation, action in self.edit_actions.items():
+            enabled = supported
+            if supported:
+                document = widget if isinstance(widget, QLineEdit) else widget.document()
+                if operation == "undo":
+                    enabled = not widget.isReadOnly() and document.isUndoAvailable()
+                elif operation == "redo":
+                    enabled = not widget.isReadOnly() and document.isRedoAvailable()
+                elif operation in {"cut", "copy"}:
+                    selected = widget.hasSelectedText() if isinstance(widget, QLineEdit) else widget.textCursor().hasSelection()
+                    enabled = selected and (operation == "copy" or not widget.isReadOnly())
+                elif operation == "paste":
+                    enabled = not widget.isReadOnly() and QApplication.clipboard().mimeData().hasText()
+            action.setEnabled(enabled)
 
     def apply_button_hierarchy(self):
         workspace = self.workspace

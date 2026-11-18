@@ -30,6 +30,7 @@ from modules.runtime_manager import (
     PythonCommand,
     RuntimeManager,
 )
+from modules.platform_support import trash_name
 
 
 class AppDialogTests(unittest.TestCase):
@@ -72,7 +73,7 @@ class AppDialogTests(unittest.TestCase):
         try:
             self.assertIsInstance(recycle, AppDialog)
             self.assertIsInstance(unsaved, AppDialog)
-            self.assertEqual(recycle.confirm_button.text(), "Move to Recycle Bin")
+            self.assertEqual(recycle.confirm_button.text(), f"Move to {trash_name()}")
             self.assertEqual(unsaved.go_back_button.text(), "Go back")
         finally:
             recycle.close()
@@ -272,6 +273,26 @@ class AppDialogTests(unittest.TestCase):
                 self.assertIsNone(dialog._stage)
                 process.kill.assert_called_once_with()
                 process.waitForFinished.assert_called_once_with(2000)
+            finally:
+                dialog.close()
+
+    def test_runtime_setup_explains_unsupported_architecture_before_starting(self):
+        with TemporaryDirectory() as temporary:
+            manager = RuntimeManager(temporary, spec=CPU_RUNTIME)
+            dialog = RuntimeSetupDialog(manager, PythonCommand("python"))
+            try:
+                with patch.object(
+                    manager,
+                    "setup_error",
+                    return_value="This runtime requires Apple Silicon (arm64).",
+                ), patch.object(dialog, "_start_process") as start_process:
+                    dialog._begin_setup()
+
+                self.assertEqual(dialog._stage, "failed")
+                self.assertFalse(dialog.runtime_ready)
+                self.assertIn("arm64", dialog.detail_label.text())
+                self.assertFalse(manager.root.exists())
+                start_process.assert_not_called()
             finally:
                 dialog.close()
 

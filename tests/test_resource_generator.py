@@ -125,7 +125,7 @@ class ResourceAwareGeneratorTests(unittest.TestCase):
 
         with (
             patch.object(generator, "generate_part", side_effect=generate_part),
-            patch.object(generator, "_release_cuda_memory"),
+            patch.object(generator, "_release_accelerator_memory"),
         ):
             audio = generator.generate_chunk(
                 "One two three four. Five six seven eight."
@@ -157,7 +157,7 @@ class ResourceAwareGeneratorTests(unittest.TestCase):
         with (
             patch.object(generator, "generate_part", side_effect=generate_part),
             patch.object(generator, "_fallback_to_cpu", side_effect=fallback),
-            patch.object(generator, "_release_cuda_memory"),
+            patch.object(generator, "_release_accelerator_memory"),
         ):
             audio = generator.generate_chunk("One two.")
 

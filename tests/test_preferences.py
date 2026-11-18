@@ -99,7 +99,7 @@ class PreferencesTests(unittest.TestCase):
         self.application.processEvents()
         return self.window.ui_state.get("preferences_dialog")
 
-    def test_preferences_action_is_singleton_frameless_and_uses_ctrl_comma(self):
+    def test_preferences_action_is_singleton_and_uses_platform_window_controls(self):
         first = self.open_preferences()
 
         self.assertIsInstance(first, PreferencesDialog)
@@ -107,7 +107,10 @@ class PreferencesTests(unittest.TestCase):
             self.window.command_view.action_preferences.shortcut(),
             QKeySequence("Ctrl+,"),
         )
-        self.assertTrue(first.windowFlags() & Qt.WindowType.FramelessWindowHint)
+        self.assertEqual(
+            bool(first.windowFlags() & Qt.WindowType.FramelessWindowHint),
+            not self.window._window_chrome.uses_native_frame,
+        )
         self.assertEqual(first.navigation.count(), 7)
         self.assertEqual(first.pages.count(), 7)
         self.assertEqual(first.PAGE_NAMES[3], "Models")

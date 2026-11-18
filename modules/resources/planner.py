@@ -55,13 +55,13 @@ class AdaptiveSectionPlanner:
         self.cpu_fallback_used = False
 
         memory_mb = (
-            after_load_snapshot.total_vram_mb
-            if self.device == "cuda"
+            after_load_snapshot.accelerator_memory_mb
+            if self.device in {"cuda", "mps"}
             else after_load_snapshot.total_system_ram_mb
         )
         device_name = (
             after_load_snapshot.gpu_name
-            if self.device == "cuda"
+            if self.device in {"cuda", "mps"}
             else "CPU"
         )
         self.profile_id = profile_store.profile_id(
@@ -87,10 +87,10 @@ class AdaptiveSectionPlanner:
 
         if isinstance(profiled, int) and profiled > 0:
             initial = profiled
-        elif self.device == "cuda":
+        elif self.device in {"cuda", "mps"}:
             usable = max(
                 0.0,
-                float(snapshot.free_vram_mb or 0)
+                float(snapshot.accelerator_headroom_mb or 0)
                 - self.safety_margin_mb,
             )
 
@@ -107,13 +107,13 @@ class AdaptiveSectionPlanner:
             else:
                 initial = self.maximum_words
         else:
-            available = float(snapshot.available_system_ram_mb or 0)
+            available = snapshot.available_system_ram_mb
 
-            if available and available < 2048:
+            if available is not None and available < 2048:
                 initial = self.minimum_words
-            elif available and available < 4096:
+            elif available is not None and available < 4096:
                 initial = 40
-            elif available and available < 8192:
+            elif available is not None and available < 8192:
                 initial = 80
             else:
                 initial = min(120, self.maximum_words)
@@ -160,7 +160,7 @@ class AdaptiveSectionPlanner:
             words,
         )
 
-        if self.mode != "automatic" or self.device != "cuda":
+        if self.mode != "automatic" or self.device not in {"cuda", "mps"}:
             return self.current_words
 
         representative_words = max(
@@ -178,7 +178,7 @@ class AdaptiveSectionPlanner:
             return self.current_words
 
         snapshot = self.monitor.snapshot()
-        free_vram = float(snapshot.free_vram_mb or 0)
+        free_vram = float(snapshot.accelerator_headroom_mb or 0)
         required_free = self.safety_margin_mb + 512
 
         if free_vram <= required_free or self.current_words >= self.maximum_words:
@@ -238,6 +238,10 @@ class AdaptiveSectionPlanner:
         return {
             "device": self.device,
             "cuda_available": final_snapshot.cuda_available,
+            "mps_available": final_snapshot.mps_available,
+            "mps_allocated_memory_mb": final_snapshot.mps_allocated_memory_mb,
+            "mps_driver_memory_mb": final_snapshot.mps_driver_memory_mb,
+            "mps_recommended_memory_mb": final_snapshot.mps_recommended_memory_mb,
             "gpu_name": final_snapshot.gpu_name,
             "total_vram_mb": final_snapshot.total_vram_mb,
             "free_vram_after_load_mb": (
@@ -292,19 +296,19 @@ class AdaptiveSectionPlanner:
             )
 
         report = self.report()
-        profiled_cuda_device = (
-            self.after_load_snapshot.active_device == "cuda"
+        profiled_gpu_device = (
+            self.after_load_snapshot.active_device in {"cuda", "mps"}
         )
         profile = {
             "model_id": self.model_id,
             "device_name": (
                 self.after_load_snapshot.gpu_name
-                if profiled_cuda_device
+                if profiled_gpu_device
                 else "CPU"
             ),
             "total_memory_mb": (
-                self.after_load_snapshot.total_vram_mb
-                if profiled_cuda_device
+                self.after_load_snapshot.accelerator_memory_mb
+                if profiled_gpu_device
                 else self.after_load_snapshot.total_system_ram_mb
             ),
             "recommended_words": self.current_words,
