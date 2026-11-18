@@ -146,15 +146,12 @@ class TTSHarnessService:
         return self.job_execution.request_cancel(job_id)
 
     def reset_chunks(self, job_id, script_id, chunk_ids):
-        return self.segment_service.reset(job_id, script_id, chunk_ids)
+        with self.store.lock(job_id):
+            return self.segment_service.reset(job_id, script_id, chunk_ids)
 
     def update_chunk_text(self, job_id, script_id, chunk_id, text):
-        return self.segment_service.update_text(
-            job_id,
-            script_id,
-            chunk_id,
-            text,
-        )
+        with self.store.lock(job_id):
+            return self.segment_service.update_text(job_id, script_id, chunk_id, text)
 
     def list_voices(self):
         return self.voice_library.list()

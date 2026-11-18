@@ -13,6 +13,7 @@ class JobRequest:
     voice_override: str | None = None
     job_id: str | None = None
     name: str | None = None
+    origin: str = "desktop"
 
 
 __all__ = ("JobRequest",)

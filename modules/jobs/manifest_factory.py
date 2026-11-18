@@ -16,7 +16,7 @@ from modules.jobs.common import (
 )
 
 
-def create_job(store, scripts, settings, voice_file, job_id=None, name=None):
+def create_job(store, scripts, settings, voice_file, job_id=None, name=None, *, origin="desktop"):
     scripts = [Path(script).expanduser().resolve() for script in scripts]
 
     if not scripts:
@@ -32,6 +32,10 @@ def create_job(store, scripts, settings, voice_file, job_id=None, name=None):
         raise JobStoreError(f"Voice reference not found: {voice_file}")
 
     job_id = store.validate_job_id(job_id or store.new_job_id())
+    if origin not in ("desktop", "cli"):
+        raise JobStoreError("Job origin must be desktop or cli")
+
+    published_folder = Path("final") / origin / job_id
     store.root.mkdir(parents=True, exist_ok=True)
     final_folder = store.job_folder(job_id)
 
@@ -72,9 +76,9 @@ def create_job(store, scripts, settings, voice_file, job_id=None, name=None):
             )
 
             if settings.get("merge_audio", True):
-                published_output = f"final/{candidate}.{output_format}"
+                published_output = published_folder / f"{candidate}.{output_format}"
             else:
-                published_output = f"final/{candidate}_chunks"
+                published_output = published_folder / f"{candidate}_chunks"
 
             script_entries.append({
                 "id": script_id,
@@ -84,7 +88,7 @@ def create_job(store, scripts, settings, voice_file, job_id=None, name=None):
                 "audio_directory": (script_root / "audio").as_posix(),
                 "work_directory": (script_root / "work").as_posix(),
                 "output_path": output_relative.as_posix(),
-                "published_output": published_output,
+                "published_output": published_output.as_posix(),
                 "status": "pending",
                 "error": None,
                 "started_at": None,

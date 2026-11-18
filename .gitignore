@@ -23,6 +23,7 @@ ENV/
 *.temp
 *.log
 *.spec
+!/tools/windows_bundle.spec
 build/
 dist/
 .env

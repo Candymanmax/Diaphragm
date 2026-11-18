@@ -3,8 +3,27 @@
 from tests.desktop_base import *
 from types import SimpleNamespace
 from PySide6.QtTest import QTest
+from modules.app_settings import SettingsRepository
+from modules.service import TTSHarnessService
 
 class DesktopJobsTests(DesktopHarnessBase):
+    def test_startup_skips_recovery_for_a_running_cli_job(self):
+        service = TTSHarnessService(SettingsRepository.for_testing(self.root).paths)
+        manifest = service.create_job(JobRequest(
+            scripts=(str(self.root / "input" / "script.txt"),),
+        ))
+        job_id = manifest["job_id"]
+        manifest["status"] = "running"
+        service.store.save(manifest)
+
+        with service.store.lock(job_id):
+            self.window = HarnessMainWindow(self.root)
+            self.assertEqual(service.load_job(job_id)["status"], "running")
+            self.assertIn(job_id, self.window.job_controller.snapshot().visible_job_ids)
+
+        self.window.generation_controller.recover_interrupted_jobs()
+        self.assertEqual(service.load_job(job_id)["status"], "interrupted")
+
     def test_refresh_reuses_job_card_and_updates_its_content(self):
         self.window = HarnessMainWindow(self.root)
         manifest = self.window.service.create_job(JobRequest(
@@ -820,6 +839,12 @@ class DesktopJobsTests(DesktopHarnessBase):
         ) as open_url:
             self.window.workspace_view.header.job_header_action.click()
             open_url.assert_called_once()
+
+        with patch(
+            "harness_ui.controllers.output_review.QDesktopServices.openUrl"
+        ) as open_url:
+            self.window.workspace_view.output.open_output_folder_button.click()
+            open_url.assert_called_once_with(QUrl.fromLocalFile(str(output.parent)))
 
 
     def test_relative_job_times_are_compact(self):

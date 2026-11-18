@@ -24,6 +24,10 @@ class JobStoreError(RuntimeError):
     """Raised when a persistent job cannot be created or loaded safely."""
 
 
+class JobBusyError(JobStoreError):
+    """Raised when another process owns the job's write lock."""
+
+
 class JobControlRequested(RuntimeError):
     """Raised by the runner when a pause or cancel marker is observed."""
 

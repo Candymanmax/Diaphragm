@@ -142,6 +142,25 @@ class WorkerProcessTests(unittest.TestCase):
             self.assertIsNone(worker.process)
             self.assertIsNone(worker.event_queue)
 
+    def test_desktop_worker_leaves_a_claimed_job_alone(self):
+        with TemporaryDirectory() as temporary:
+            paths, service, manifest = self._create_job(Path(temporary), "locked")
+            job_id = manifest["job_id"]
+            worker = JobWorkerProcess(paths)
+            try:
+                with service.store.lock(job_id):
+                    worker.start(job_id, mode="resume")
+                    events = self._collect_until_stopped(worker)
+                    self.assertEqual(worker.exit_code(), 1)
+                    self.assertTrue(any(
+                        event.kind == "worker.crashed" and "in use" in event.message
+                        for event in events
+                    ))
+                    self.assertEqual(service.load_job(job_id), manifest)
+            finally:
+                worker.terminate()
+                worker.close()
+
     def test_poll_decodes_events_and_ignores_malformed_queue_values(self):
         with TemporaryDirectory() as temporary:
             paths = SettingsRepository.for_testing(Path(temporary)).paths

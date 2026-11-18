@@ -36,18 +36,7 @@ if not defined PYTHON_EXE (
 "%PYTHON_EXE%" -m pip install --disable-pip-version-check --no-input "pyinstaller>=6,<7"
 if errorlevel 1 goto :error
 
-"%PYTHON_EXE%" -m PyInstaller --noconfirm --clean --onedir ^
-    --name "Diaphragm" --windowed ^
-    --icon "harness_ui\assets\diaphragm_icon.ico" ^
-    --add-data "config.default.yaml;." ^
-    --add-data "harness_ui\assets\icons;harness_ui\assets\icons" ^
-    --add-data "harness_ui\assets\diaphragm_icon.ico;harness_ui\assets" ^
-    --add-data "harness_ui\assets\diaphragm_icon.svg;harness_ui\assets" ^
-    --collect-all chatterbox --collect-all syntok --collect-binaries sklearn ^
-    --collect-data perth ^
-    --recursive-copy-metadata diffusers --recursive-copy-metadata transformers ^
-    --exclude-module torch --exclude-module torchaudio ^
-    desktop_gui.py
+"%PYTHON_EXE%" -m PyInstaller --noconfirm --clean tools\windows_bundle.spec
 if errorlevel 1 goto :error
 
 rem PySide6 uses the Windows ICU forwarder. PyInstaller can otherwise copy an

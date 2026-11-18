@@ -105,6 +105,26 @@ class PersistentJobStoreTests(unittest.TestCase):
         manifest_text = json.dumps(loaded)
         self.assertNotIn(str(self.workspace), manifest_text)
 
+    def test_jobs_with_the_same_script_name_get_distinct_output_paths(self):
+        for job_id, origin, output in (
+            ("desktop-job", "desktop", "private-script.wav"),
+            ("cli-job", "cli", "private-script.wav"),
+            ("second-cli-job", "cli", "private-script.wav"),
+            ("cli-chunks", "cli", "private-script_chunks"),
+        ):
+            with self.subTest(job_id=job_id):
+                manifest = self.store.create_job(
+                    scripts=[self.script],
+                    settings={**self.settings, "merge_audio": job_id != "cli-chunks"},
+                    voice_file=self.voice,
+                    job_id=job_id,
+                    origin=origin,
+                )
+                expected = f"final/{origin}/{job_id}/{output}"
+                self.assertEqual(manifest["scripts"][0]["published_output"], expected)
+                restarted = self.store.prepare_for_resume(job_id, restart=True)
+                self.assertEqual(restarted["scripts"][0]["published_output"], expected)
+
     def test_generated_job_ids_are_unique_and_safe(self):
         first = self.store.new_job_id()
         second = self.store.new_job_id()

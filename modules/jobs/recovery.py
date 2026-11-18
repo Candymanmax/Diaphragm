@@ -7,6 +7,7 @@ import shutil
 from modules.jobs.common import (
     RECOVERABLE_JOB_STATES,
     RECOVERABLE_SCRIPT_STATES,
+    JobBusyError,
     JobStoreError,
     utc_now,
 )
@@ -221,7 +222,12 @@ class JobRecoveryService:
                 continue
 
             try:
-                self.cleanup_completed_artifacts(manifest)
+                with self.store.lock(manifest["job_id"]):
+                    current = self.store.load(manifest["job_id"])
+                    if current.get("status") == "complete":
+                        self.cleanup_completed_artifacts(current)
+            except JobBusyError:
+                continue
             except (JobStoreError, OSError) as error:
                 failures.append((manifest["job_id"], str(error)))
 

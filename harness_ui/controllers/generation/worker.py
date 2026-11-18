@@ -14,10 +14,11 @@ class GenerationWorkerCommands:
             if manifest.get("status") not in {"running", "pausing", "cancelling"}:
                 continue
             try:
-                recovered = self.service.store.recover(manifest)
-                self.diagnostics.append(
-                    f"Recovered interrupted job {recovered['job_id']}", "warning"
-                )
+                recovered = self.service.store.recover_if_idle(manifest["job_id"])
+                if recovered is not None:
+                    self.diagnostics.append(
+                        f"Recovered interrupted job {recovered['job_id']}", "warning"
+                    )
             except (JobStoreError, OSError) as error:
                 self.diagnostics.append(str(error), "error")
 
@@ -98,9 +99,7 @@ class GenerationWorkerCommands:
         job_id = self._get("current_job_id")
         if job_id:
             try:
-                manifest = self.service.load_job(job_id)
-                if manifest.get("status") in {"running", "pausing", "cancelling"}:
-                    self.service.store.recover(manifest)
+                self.service.store.recover_if_idle(job_id)
             except (JobStoreError, OSError):
                 pass
         self.worker.close()

@@ -133,8 +133,7 @@ class ShutdownController(QObject):
 
             if job_id:
                 try:
-                    manifest = self.service.load_job(job_id)
-                    self.service.store.recover(manifest)
+                    self.service.store.recover_if_idle(job_id)
                 except (JobStoreError, OSError):
                     pass
 

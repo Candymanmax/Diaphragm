@@ -109,8 +109,10 @@ jobs:
       - name: Verify packaged application
         shell: pwsh
         run: |
-          if (-not (Test-Path -LiteralPath "dist\Diaphragm\Diaphragm.exe")) {
-            throw "PyInstaller did not create dist\Diaphragm\Diaphragm.exe"
+          foreach ($name in @("Diaphragm.exe", "diaphragm-cli.exe")) {
+            if (-not (Test-Path -LiteralPath "dist\Diaphragm\$name")) {
+              throw "PyInstaller did not create dist\Diaphragm\$name"
+            }
           }
           foreach ($dll in @(
             "dist\Diaphragm\_internal\sklearn\.libs\vcomp140.dll",
@@ -148,6 +150,8 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Packaged smoke test failed with exit code $($process.ExitCode)"
           }
+          & "dist\Diaphragm\diaphragm-cli.exe" jobs list
+          if ($LASTEXITCODE -ne 0) { throw "Packaged CLI smoke test failed" }
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v7
@@ -203,3 +207,5 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Uploaded artifact smoke test failed with exit code $($process.ExitCode)"
           }
+          & (Join-Path $packageRoot "diaphragm-cli.exe") --help
+          if ($LASTEXITCODE -ne 0) { throw "Uploaded CLI smoke test failed" }

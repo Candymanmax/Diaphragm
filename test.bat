@@ -21,7 +21,7 @@ set "PYTHONDONTWRITEBYTECODE=1"
 set "PYTHONUTF8=1"
 
 echo Running syntax checks...
-"%PYTHON_EXE%" -B -m compileall -q desktop_gui.py harness_ui modules tests
+"%PYTHON_EXE%" -B -m compileall -q desktop_gui.py diaphragm.py harness_ui modules tests
 if errorlevel 1 exit /b 1
 
 echo Running unit tests...

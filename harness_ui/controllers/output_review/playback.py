@@ -100,8 +100,12 @@ class OutputPlaybackCommands:
             QDesktopServices.openUrl(QUrl.fromLocalFile(item.data(Qt.ItemDataRole.UserRole)))
 
     def open_output_folder(self):
-        self.outputs_root.mkdir(parents=True, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.outputs_root)))
+        item = self.view.output_list.currentItem()
+        folder = self.outputs_root if item is None else Path(
+            item.data(Qt.ItemDataRole.UserRole)
+        ).parent
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def release_media_source(self):
         """Release Windows handles before replacing retained/output WAVs."""

@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import uuid
 
+from modules.files import replace_with_retry
 from modules.jobs.common import JobStoreError, validate_job_id
 
 
@@ -59,7 +60,7 @@ def atomic_write_json(path, value):
             file.flush()
             os.fsync(file.fileno())
 
-        os.replace(temporary, path)
+        replace_with_retry(temporary, path)
     finally:
         if temporary.exists():
             temporary.unlink()
@@ -76,7 +77,7 @@ def atomic_write_text(path, value):
             file.flush()
             os.fsync(file.fileno())
 
-        os.replace(temporary, path)
+        replace_with_retry(temporary, path)
     finally:
         if temporary.exists():
             temporary.unlink()

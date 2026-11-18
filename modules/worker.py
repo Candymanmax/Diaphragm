@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import multiprocessing
 import queue
+import signal
 import traceback
 
 from modules.runtime_manager import activate_runtime_imports
@@ -32,25 +33,30 @@ def run_job_worker(
     job_id,
     mode,
     event_queue,
+    terminal=False,
 ):
+    if terminal:
+        # The CLI handles Ctrl+C and writes a pause request at a safe point.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
     callback = _queue_callback(event_queue)
-    emit_event(
-        callback,
-        "worker.started",
-        "Generation worker started",
-        job_id=job_id,
-        payload={"mode": mode},
-    )
 
     try:
         service = TTSHarnessService(app_paths)
-        return_code = service.run_job(
-            job_id,
-            retry_failed=mode == "retry",
-            restart=mode == "restart",
-            prepared=mode == "prepared",
-            event_callback=callback,
-        )
+        with service.store.lock(job_id):
+            emit_event(
+                callback,
+                "worker.started",
+                "Generation worker started",
+                job_id=job_id,
+                payload={"mode": mode},
+            )
+            return_code = service.run_job(
+                job_id,
+                retry_failed=mode == "retry",
+                restart=mode == "restart",
+                prepared=mode == "prepared",
+                event_callback=callback,
+            )
         emit_event(
             callback,
             "worker.finished",
@@ -92,7 +98,7 @@ class JobWorkerProcess:
     def running(self):
         return self.process is not None and self.process.is_alive()
 
-    def start(self, job_id, mode="resume"):
+    def start(self, job_id, mode="resume", *, terminal=False):
         if self.running:
             raise RuntimeError("A generation worker is already running")
 
@@ -109,6 +115,7 @@ class JobWorkerProcess:
                 self.job_id,
                 mode,
                 self.event_queue,
+                terminal,
             ),
             name=f"tts-job-{self.job_id}",
             daemon=True,
@@ -154,7 +161,11 @@ class JobWorkerProcess:
             self.process.join(timeout=2)
 
     def close(self):
-        if self.process is not None and not self.process.is_alive():
+        if (
+            self.process is not None
+            and self.process.pid is not None
+            and not self.process.is_alive()
+        ):
             self.process.join(timeout=0.1)
 
         if self.event_queue is not None:

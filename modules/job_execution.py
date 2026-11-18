@@ -64,6 +64,7 @@ class JobExecutionService:
             voice_file=voice,
             job_id=request.job_id,
             name=request.name,
+            origin=request.origin,
         )
         emit_event(
             event_callback,
@@ -188,19 +189,20 @@ class JobExecutionService:
         return [job for job in jobs if not job.get("archived", False)]
 
     def load(self, job_id, *, recover=False):
-        manifest = self.store.load(job_id)
-        return self.store.recover(manifest) if recover else manifest
+        if recover:
+            with self.store.lock(job_id):
+                return self.store.recover(self.store.load(job_id))
+        return self.store.load(job_id)
 
     def set_archived(self, job_id, archived=True):
-        manifest = self.store.load(job_id)
-
-        if manifest.get("status") in {"running", "pausing", "cancelling"}:
-            raise JobStoreError("A running job cannot be archived")
-
-        manifest["archived"] = bool(archived)
-        manifest["archived_at"] = utc_now() if archived else None
-        self.store.save(manifest)
-        return manifest
+        with self.store.lock(job_id):
+            manifest = self.store.load(job_id)
+            if manifest.get("status") in {"running", "pausing", "cancelling"}:
+                raise JobStoreError("A running job cannot be archived")
+            manifest["archived"] = bool(archived)
+            manifest["archived_at"] = utc_now() if archived else None
+            self.store.save(manifest)
+            return manifest
 
     def request_pause(self, job_id):
         self.store.request_pause(job_id)

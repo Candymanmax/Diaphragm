@@ -114,6 +114,48 @@ def _directories_identical(first, second):
     )
 
 
+def _job_output_folders(source_id, target_id):
+    return {
+        Path("final") / origin / source_id: Path("final") / origin / target_id
+        for origin in ("cli", "desktop")
+    }
+
+
+def _retarget_path(relative, folder_targets):
+    for parent in relative.parents:
+        if parent in folder_targets:
+            return folder_targets[parent] / relative.relative_to(parent)
+    return relative
+
+
+def _remap_job_manifest(manifest, job_id):
+    source_id = manifest.get("job_id")
+    folder_targets = _job_output_folders(source_id, job_id) if source_id else {}
+    manifest["job_id"] = job_id
+    for script in manifest.get("scripts") or ():
+        published = script.get("published_output")
+        if published:
+            relative = Path(published)
+            target = _retarget_path(relative, folder_targets)
+            if target != relative:
+                script["published_output"] = target.as_posix()
+
+
+def _job_outputs_compatible(source_job, target_job):
+    for source_folder, target_folder in _job_output_folders(
+        source_job.name, target_job.name
+    ).items():
+        source = source_job.parents[1] / source_folder
+        target = target_job.parents[1] / target_folder
+        if target.is_file() or any(
+            not _files_identical(source / path.relative_to(target), path)
+            for path in target.rglob("*")
+            if path.is_file()
+        ):
+            return False
+    return True
+
+
 def _job_directories_equivalent(source, destination):
     source = Path(source)
     destination = Path(destination)
@@ -150,8 +192,8 @@ def _job_directories_equivalent(source, destination):
         except (OSError, ValueError):
             return False
 
-        source_manifest["job_id"] = "<job>"
-        destination_manifest["job_id"] = "<job>"
+        _remap_job_manifest(source_manifest, "<job>")
+        _remap_job_manifest(destination_manifest, "<job>")
 
         if source_manifest != destination_manifest:
             return False
@@ -159,7 +201,7 @@ def _job_directories_equivalent(source, destination):
     return True
 
 
-def _job_conflict_target(source_job, target_job):
+def _job_conflict_target(source_job, target_job, reserved):
     target_job = Path(target_job)
     index = 2
 
@@ -168,14 +210,12 @@ def _job_conflict_target(source_job, target_job):
             f"{target_job.name}-imported-{index}"
         )
 
-        if not candidate.exists():
-            return candidate, False
+        if candidate not in reserved and _job_outputs_compatible(source_job, candidate):
+            if not candidate.exists():
+                return candidate, False
 
-        if candidate.is_dir() and _job_directories_equivalent(
-            source_job,
-            candidate,
-        ):
-            return candidate, True
+            if candidate.is_dir() and _job_directories_equivalent(source_job, candidate):
+                return candidate, True
 
         index += 1
 
@@ -197,6 +237,7 @@ def migrate_directory_verified(
     include=None,
     conflict_mode="suffix",
     progress_callback=None,
+    folder_targets=None,
 ):
     """Copy a directory through verified staging without touching source."""
 
@@ -215,6 +256,7 @@ def migrate_directory_verified(
         )
 
     include = tuple(include or (".",))
+    folder_targets = folder_targets or {}
 
     if conflict_mode not in {"suffix", "error"}:
         raise ValueError(f"Unknown conflict mode: {conflict_mode}")
@@ -236,7 +278,7 @@ def migrate_directory_verified(
     required_bytes = 0
 
     for candidate in files:
-        target = destination / candidate.relative_to(source)
+        target = destination / _retarget_path(candidate.relative_to(source), folder_targets)
 
         if not target.exists():
             required_bytes += candidate.stat().st_size
@@ -266,9 +308,10 @@ def migrate_directory_verified(
             "GiB of free space."
         )
 
-    migration_key = hashlib.sha256(
-        f"{source}|{destination}|{include}|{conflict_mode}".encode("utf-8")
-    ).hexdigest()[:12]
+    migration_identity = f"{source}|{destination}|{include}|{conflict_mode}"
+    if folder_targets:
+        migration_identity += f"|{folder_targets}"
+    migration_key = hashlib.sha256(migration_identity.encode("utf-8")).hexdigest()[:12]
     staging = destination.parent / f".diaphragm-import-{migration_key}.tmp"
     staging.mkdir(parents=True, exist_ok=True)
     journal_path = staging / "migration.json"
@@ -292,7 +335,7 @@ def migrate_directory_verified(
 
     for index, candidate in enumerate(files, start=1):
         relative = candidate.relative_to(source)
-        target = destination / relative
+        target = destination / _retarget_path(relative, folder_targets)
 
         if target.exists():
             if target.is_file() and _files_identical(target, candidate):
@@ -392,15 +435,29 @@ def migrate_library(source, destination, progress_callback=None):
         if path.is_file()
     ]
     source_jobs = source / "jobs"
-
+    destination_jobs = destination / "jobs"
+    job_plan = []
+    output_targets = {}
     if source_jobs.is_dir():
-        all_files.extend(
-            path
-            for job_folder in source_jobs.iterdir()
-            if job_folder.is_dir()
-            for path in job_folder.rglob("*")
-            if path.is_file()
-        )
+        source_folders = [
+            folder for folder in sorted(source_jobs.iterdir())
+            if folder.is_dir() and not folder.name.startswith(".")
+        ]
+        reserved = {destination_jobs / folder.name for folder in source_folders}
+        for source_job in source_folders:
+            job_files = [path for path in source_job.rglob("*") if path.is_file()]
+            all_files.extend(job_files)
+            target_job = destination_jobs / source_job.name
+            output_compatible = _job_outputs_compatible(source_job, target_job)
+            already_imported = (
+                output_compatible and target_job.is_dir()
+                and _directories_identical(source_job, target_job)
+            )
+            if not already_imported and (target_job.exists() or not output_compatible):
+                target_job, already_imported = _job_conflict_target(source_job, target_job, reserved)
+                reserved.add(target_job)
+                output_targets.update(_job_output_folders(source_job.name, target_job.name))
+            job_plan.append((source_job, target_job, len(job_files), already_imported))
     total_files = len(all_files)
     completed_files = 0
     copied_bytes = 0
@@ -419,6 +476,7 @@ def migrate_library(source, destination, progress_callback=None):
         include=non_job_folders,
         conflict_mode="suffix",
         progress_callback=report_progress,
+        folder_targets=output_targets,
     )
     completed_files = sum(
         1
@@ -429,55 +487,10 @@ def migrate_library(source, destination, progress_callback=None):
     copied_files = base_report.copied_files
     skipped_files = base_report.skipped_files
     copied_bytes = base_report.copied_bytes
-    destination_jobs = destination / "jobs"
-
-    if source_jobs.is_dir():
-        for source_job in sorted(source_jobs.iterdir()):
-            if not source_job.is_dir():
-                continue
-
-            job_file_count = sum(
-                1 for path in source_job.rglob("*") if path.is_file()
-            )
-            target_job = destination_jobs / source_job.name
-
-            if target_job.is_dir() and _directories_identical(
-                source_job,
-                target_job,
-            ):
-                skipped_files += job_file_count
-                completed_files += job_file_count
-
-                if progress_callback:
-                    progress_callback(
-                        completed_files,
-                        total_files,
-                        copied_bytes,
-                    )
-
-                continue
-
-            remapped = target_job.exists()
-
-            if remapped:
-                target_job, already_imported = _job_conflict_target(
-                    source_job,
-                    target_job,
-                )
-
-                if already_imported:
-                    skipped_files += job_file_count
-                    completed_files += job_file_count
-
-                    if progress_callback:
-                        progress_callback(
-                            completed_files,
-                            total_files,
-                            copied_bytes,
-                        )
-
-                    continue
-
+    for source_job, target_job, job_file_count, already_imported in job_plan:
+        if already_imported:
+            skipped_files += job_file_count
+        else:
             job_report = migrate_directory_verified(
                 source_job,
                 target_job,
@@ -485,27 +498,25 @@ def migrate_library(source, destination, progress_callback=None):
                 conflict_mode="error",
                 progress_callback=report_progress,
             )
-
-            if remapped:
-                manifest_path = target_job / "manifest.json"
-
-                if manifest_path.is_file():
-                    try:
-                        manifest = json.loads(
-                            manifest_path.read_text(encoding="utf-8")
-                        )
-                    except (OSError, ValueError) as error:
-                        raise PathMigrationError(
-                            f"Could not remap job manifest {manifest_path}"
-                        ) from error
-
-                    manifest["job_id"] = target_job.name
-                    _atomic_write_json(manifest_path, manifest)
-
             copied_files += job_report.copied_files
             skipped_files += job_report.skipped_files
             copied_bytes += job_report.copied_bytes
-            completed_files += job_file_count
+
+        manifest_path = target_job / "manifest.json"
+        if target_job.name != source_job.name and manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                raise PathMigrationError(
+                    f"Could not remap job manifest {manifest_path}"
+                ) from error
+            if manifest.get("job_id") != target_job.name:
+                _remap_job_manifest(manifest, target_job.name)
+                _atomic_write_json(manifest_path, manifest)
+
+        completed_files += job_file_count
+        if progress_callback:
+            progress_callback(completed_files, total_files, copied_bytes)
 
     return MigrationReport(
         source=source,

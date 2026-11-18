@@ -208,8 +208,12 @@ class JobLifecycleCommands:
             return
         job_folder = self.service.store.job_folder(job_id)
         try:
-            moved = job_folder.exists() and self._move_to_trash(job_folder)
-        except OSError as error:
+            with self.service.store.lock(job_id):
+                manifest = self.service.load_job(job_id)
+                if manifest.get("status") in {"running", "pausing", "cancelling"}:
+                    raise JobStoreError("Pause or cancel the active job before deleting it.")
+                moved = self._move_to_trash(job_folder)
+        except (JobStoreError, OSError) as error:
             AppDialog.critical(self.parent_window, "Could not delete job", str(error))
             return
         if not moved:

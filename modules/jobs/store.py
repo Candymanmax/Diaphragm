@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -16,6 +18,8 @@ from modules.jobs.artifacts import (
 )
 from modules.jobs.common import (
     JOB_SCHEMA_VERSION,
+    RECOVERABLE_JOB_STATES,
+    JobBusyError,
     JobStoreError,
     new_job_id,
     utc_now,
@@ -46,6 +50,27 @@ class JobStore:
     def manifest_path(self, job_id):
         return self.job_folder(job_id) / "manifest.json"
 
+    @contextmanager
+    def lock(self, job_id):
+        job_id = self.validate_job_id(job_id)
+        folder = self.root / ".locks"
+        folder.mkdir(parents=True, exist_ok=True)
+        # Keep locks outside job folders so Windows can move a locked job to the trash.
+        with (folder / f"{job_id}.lock").open("a+b") as lock_file:
+            lock_file.seek(0)
+            try:
+                if os.name == "nt":
+                    from msvcrt import LK_NBLCK, locking
+
+                    locking(lock_file.fileno(), LK_NBLCK, 1)
+                else:
+                    from fcntl import LOCK_EX, LOCK_NB, flock
+
+                    flock(lock_file.fileno(), LOCK_EX | LOCK_NB)
+            except OSError as error:
+                raise JobBusyError(f"Job {job_id} is in use by another process.") from error
+            yield
+
     def resolve_artifact(self, job_id, relative_path):
         return resolve_artifact(self.root, job_id, relative_path)
 
@@ -63,6 +88,8 @@ class JobStore:
         voice_file,
         job_id=None,
         name=None,
+        *,
+        origin="desktop",
     ):
         return create_job(
             self,
@@ -71,6 +98,7 @@ class JobStore:
             voice_file,
             job_id=job_id,
             name=name,
+            origin=origin,
         )
 
     def create_draft(self, name, job_id=None):
@@ -199,9 +227,20 @@ class JobStore:
         self._atomic_write_text(marker, f"requested_at={utc_now()}\n")
 
     def request_cancel(self, job_id):
-        manifest = self.load(job_id)
+        try:
+            with self.lock(job_id):
+                self._cancel_idle(job_id)
+        except JobBusyError:
+            self.load(job_id)
+            self._write_cancel_marker(job_id)
+
+    def _write_cancel_marker(self, job_id):
         marker = self.job_folder(job_id) / "control.cancel"
         self._atomic_write_text(marker, f"requested_at={utc_now()}\n")
+
+    def _cancel_idle(self, job_id):
+        manifest = self.load(job_id)
+        self._write_cancel_marker(job_id)
 
         if manifest.get("status") not in {
             "running",
@@ -251,6 +290,16 @@ class JobStore:
 
     def recover(self, manifest):
         return self.recovery.recover(manifest)
+
+    def recover_if_idle(self, job_id):
+        try:
+            with self.lock(job_id):
+                manifest = self.load(job_id)
+                if manifest.get("status") in RECOVERABLE_JOB_STATES:
+                    return self.recover(manifest)
+        except JobBusyError:
+            return None
+        return None
 
     def prepare_for_resume(
         self,

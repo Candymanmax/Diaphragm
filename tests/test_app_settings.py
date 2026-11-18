@@ -221,7 +221,14 @@ class AppSettingsTests(unittest.TestCase):
         source_job = source / "jobs" / "job-1"
         source_job.mkdir(parents=True)
         (source_job / "manifest.json").write_text(
-            json.dumps({"job_id": "job-1", "name": "Source"}),
+            json.dumps({
+                "job_id": "job-1",
+                "name": "Source",
+                "scripts": [
+                    {"published_output": "final/cli/job-1/story.wav"},
+                    {"published_output": "final/cli/job-1/notes_chunks"},
+                ],
+            }),
             encoding="utf-8",
         )
         (source_job / "audio.wav").write_bytes(b"source audio")
@@ -236,6 +243,15 @@ class AppSettingsTests(unittest.TestCase):
             json.dumps({"job_id": "job-1", "name": "Destination"}),
             encoding="utf-8",
         )
+        outputs = {
+            "story.wav": (b"source WAV", b"destination WAV"),
+            "notes_chunks/audio/chunk0001.wav": (b"source chunk", b"destination chunk"),
+        }
+        for relative_path, contents in outputs.items():
+            for root, content in zip((source, destination), contents):
+                output = root / "final" / "cli" / "job-1" / relative_path
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(content)
 
         report = migrate_library(source, destination)
 
@@ -251,6 +267,20 @@ class AppSettingsTests(unittest.TestCase):
             (imported_job / "manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["job_id"], "job-1-imported-2")
+        self.assertEqual(
+            [script["published_output"] for script in manifest["scripts"]],
+            ["final/cli/job-1-imported-2/story.wav", "final/cli/job-1-imported-2/notes_chunks"],
+        )
+        for relative_path, (source_bytes, destination_bytes) in outputs.items():
+            output_root = destination / "final" / "cli"
+            self.assertEqual(
+                (output_root / "job-1-imported-2" / relative_path).read_bytes(),
+                source_bytes,
+            )
+            self.assertEqual(
+                (output_root / "job-1" / relative_path).read_bytes(),
+                destination_bytes,
+            )
         self.assertEqual((imported_job / "audio.wav").read_bytes(), b"source audio")
         self.assertEqual(
             json.loads((source_job / "manifest.json").read_text(encoding="utf-8"))["job_id"],
@@ -259,6 +289,7 @@ class AppSettingsTests(unittest.TestCase):
 
         repeated = migrate_library(source, destination)
 
+        self.assertEqual(repeated.copied_files, 0)
         self.assertGreaterEqual(repeated.skipped_files, 3)
         self.assertFalse(
             (destination / "jobs" / "job-1-imported-3").exists()
